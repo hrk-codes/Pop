@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm --recursive --if-present build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:native",
-    "check:native": "cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check && cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml",
+    "check:native": "pnpm --filter @pop/desktop build && cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check && cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
