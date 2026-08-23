@@ -1,0 +1,6 @@
+{
+  "name": "@pop/permissions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved boundary for deny-by-default access-control decisions."
+}

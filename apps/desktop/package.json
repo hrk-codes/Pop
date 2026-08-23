@@ -1,0 +1,6 @@
+{
+  "name": "@pop/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved Phase 1 boundary for the Tauri desktop companion."
+}

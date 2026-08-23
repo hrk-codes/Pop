@@ -1,0 +1,6 @@
+{
+  "name": "@pop/chrome-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved Phase 9 boundary for the Chrome Manifest V3 adapter."
+}

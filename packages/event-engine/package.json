@@ -1,0 +1,6 @@
+{
+  "name": "@pop/event-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved boundary for deterministic suggestions and intent classification."
+}

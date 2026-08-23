@@ -1,0 +1,6 @@
+{
+  "name": "@pop/vscode-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved Phase 5 boundary for the VS Code context adapter."
+}

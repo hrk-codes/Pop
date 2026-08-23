@@ -1,0 +1,6 @@
+{
+  "name": "@pop/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reserved boundary for validated local message contracts."
+}
