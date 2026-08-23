@@ -40,6 +40,10 @@ The [V0.1 completion gate](docs/product/v0.1-completion.md) records the evidence
 and the [V0.2 context model](docs/architecture/v0.2-context-model.md) defines the next architecture
 without implementing it prematurely.
 
+The [V0.2 completion gate](docs/product/v0.2-completion.md) and
+[V0.3 visual-context design](docs/architecture/visual-context.md) record the Phase 26 stability result
+and the structured-first visual domain without enabling screen access.
+
 ## Current status
 
 - Node.js, pnpm, and Git are available on the development machine.
