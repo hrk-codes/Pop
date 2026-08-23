@@ -1,6 +1,6 @@
 # Development Setup
 
-## Required for Phase 0
+## Core tools
 
 | Tool              | Purpose                                           | Check                      |
 | ----------------- | ------------------------------------------------- | -------------------------- |
@@ -9,7 +9,7 @@
 | pnpm              | Installs and links monorepo packages              | `pnpm --version`           |
 | VS Code or Cursor | Recommended editor                                | Open the repository folder |
 
-## Required before Phase 1
+## Native desktop tools
 
 | Tool                      | Purpose                                    | Check                                                    |
 | ------------------------- | ------------------------------------------ | -------------------------------------------------------- |
@@ -24,12 +24,14 @@ cd 'C:\Users\hrkgh\Agent learn\PoP'
 .\scripts\setup.ps1
 ```
 
-Then verify the foundation:
+Then verify the full workspace and run the desktop shell:
 
 ```powershell
 pnpm check
+.\scripts\dev.ps1
 git status --short
 ```
 
-`pnpm check` formats nothing; it checks formatting, lint rules, strict types, and unit tests. Phase 0 is
-healthy when the command exits successfully and no secret `.env` file appears in Git status.
+`pnpm check` formats nothing; it checks formatting, lint rules, strict types, unit tests, Rust formatting,
+and a native compile. The workspace is healthy when the command exits successfully and no secret `.env`
+file appears in Git status.

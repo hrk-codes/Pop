@@ -3,11 +3,15 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+
+if (Test-Path -LiteralPath $cargoBin) {
+    $env:Path = "$cargoBin;$env:Path"
+}
 
 Push-Location $projectRoot
 try {
-    Write-Host 'No runnable application exists in Phase 0. Workspace development scripts will be added by later phases.'
-    pnpm --recursive --if-present dev
+    pnpm --filter @pop/desktop tauri:dev
 }
 finally {
     Pop-Location

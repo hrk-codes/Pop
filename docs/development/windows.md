@@ -1,17 +1,18 @@
-# Windows Development Prerequisites
+# Windows Development Environment
 
-The Phase 0 check on 2026-08-23 found Node.js `24.15.0`, pnpm `11.19.0`, and Git
-`2.51.0.windows.1`. Rust/Cargo and Visual Studio C++ Build Tools were not detected. WebView2 could not
-be confirmed by the automated check.
+The Phase 1 check on 2026-08-23 found Node.js `24.15.0`, pnpm `11.19.0`, Git
+`2.51.0.windows.1`, Rust/Cargo `1.98.0`, Visual Studio Build Tools 2022 `17.14.39`, Windows SDK
+`10.0.26100.0`, and WebView2 `151.0.4129.101`.
 
-## Install before Phase 1
+## Required components
 
 1. Install Rust through rustup using the stable MSVC toolchain.
 2. Install Visual Studio 2022 Build Tools with **Desktop development with C++**, MSVC build tools, and
    a current Windows SDK.
 3. Confirm Microsoft Edge WebView2 Runtime is installed. It is commonly already present on supported
    Windows versions.
-4. Restart PowerShell so new PATH entries are visible.
+4. Restart PowerShell so new PATH entries are visible. The repository scripts also add
+   `%USERPROFILE%\.cargo\bin` for shells opened before rustup was installed.
 
 Verify:
 
@@ -21,5 +22,6 @@ rustc --version
 cargo --version
 ```
 
-Phase 0 itself does not compile native code, so these missing tools do not invalidate the repository
-foundation. They are a hard prerequisite for creating and running the Tauri shell in Phase 1.
+Run the desktop companion with `./scripts/dev.ps1`. Produce an optimized native executable with
+`./scripts/build.ps1`. The build script currently skips installer packaging while the product remains
+in active V0.1 development.

@@ -5,6 +5,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+
+if (Test-Path -LiteralPath $cargoBin) {
+    $env:Path = "$cargoBin;$env:Path"
+}
 
 function Get-ToolVersion {
     param(
@@ -21,10 +26,10 @@ function Get-ToolVersion {
     return (& $Command @Arguments 2>&1 | Select-Object -First 1).ToString().Trim()
 }
 
-$requiredTools = @('git', 'node', 'pnpm')
+$requiredTools = @('git', 'node', 'pnpm', 'rustup', 'rustc', 'cargo')
 $missingRequired = @()
 
-Write-Host 'POP Phase 0 toolchain'
+Write-Host 'POP desktop toolchain'
 foreach ($tool in $requiredTools) {
     $version = Get-ToolVersion -Command $tool
     if ($null -eq $version) {
@@ -37,18 +42,7 @@ foreach ($tool in $requiredTools) {
 }
 
 if ($missingRequired.Count -gt 0) {
-    throw "Install required Phase 0 tools: $($missingRequired -join ', ')"
-}
-
-Write-Host 'POP Phase 1 native prerequisites'
-foreach ($tool in @('rustup', 'rustc', 'cargo')) {
-    $version = Get-ToolVersion -Command $tool
-    if ($null -eq $version) {
-        Write-Warning "$tool was not found. Install it before Phase 1."
-    }
-    else {
-        Write-Host "  [ready]   $version"
-    }
+    throw "Install required POP tools: $($missingRequired -join ', ')"
 }
 
 $vswherePath = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -58,11 +52,11 @@ if (Test-Path -LiteralPath $vswherePath) {
         Write-Host "  [ready]   Visual Studio C++ tools: $buildToolsPath"
     }
     else {
-        Write-Warning 'Visual Studio C++ Build Tools were not detected. Install them before Phase 1.'
+        throw 'Visual Studio C++ Build Tools were not detected.'
     }
 }
 else {
-    Write-Warning 'Visual Studio Installer detection is unavailable. Confirm C++ Build Tools manually before Phase 1.'
+    throw 'Visual Studio Installer detection is unavailable.'
 }
 
 if (-not $SkipInstall) {
@@ -75,4 +69,4 @@ if (-not $SkipInstall) {
     }
 }
 
-Write-Host 'Phase 0 setup complete. Run: pnpm check'
+Write-Host 'POP setup complete. Run: .\scripts\dev.ps1'

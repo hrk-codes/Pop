@@ -26,8 +26,18 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run foundation checks
+      - name: Run project checks
         run: pnpm check
