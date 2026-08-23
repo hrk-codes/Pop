@@ -1,0 +1,10 @@
+# Keep text identical on Windows and CI so format checks are deterministic.
+* text=auto eol=lf
+
+# Never apply text conversion to binary assets.
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.webp binary
