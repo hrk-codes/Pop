@@ -36,6 +36,10 @@ pnpm check
 Read [the technology stack](docs/architecture/technology-stack.md) for the reason behind every major
 choice and [the Windows setup guide](docs/development/windows.md) for missing Tauri prerequisites.
 
+The [V0.1 completion gate](docs/product/v0.1-completion.md) records the evidence required before V0.2,
+and the [V0.2 context model](docs/architecture/v0.2-context-model.md) defines the next architecture
+without implementing it prematurely.
+
 ## Current status
 
 - Node.js, pnpm, and Git are available on the development machine.
