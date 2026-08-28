@@ -2,33 +2,30 @@ import { useEffect, useState } from 'react';
 import {
   AppWindow,
   ChevronRight,
-  CircleOff,
+  CloudOff,
+  Database,
   EyeOff,
   GripHorizontal,
   Maximize2,
-  MessageCircleMore,
+  MessageCircleOff,
   Minimize2,
-  Radio,
+  MonitorCheck,
+  PanelTopClose,
   ShieldCheck,
-  Sparkles,
   X,
 } from 'lucide-react';
 
 import popMark from './assets/pop-mark-ui.png';
-import { MonitoringSwitch } from './components/MonitoringSwitch';
-import { getMonitoringCopy, getNextExpandedMode } from './features/companion/companion-state';
+import { getNextExpandedMode } from './features/companion/companion-state';
 import { useCompanionStore } from './features/companion/store';
 import { hideCompanion, resizeCompanion, startWindowDrag } from './features/companion/window';
 
-type ExpandedTab = 'status' | 'privacy';
+type ExpandedTab = 'overview' | 'privacy';
 
 export function App() {
   const mode = useCompanionStore((state) => state.mode);
-  const monitoring = useCompanionStore((state) => state.monitoring);
   const setMode = useCompanionStore((state) => state.setMode);
-  const setMonitoring = useCompanionStore((state) => state.setMonitoring);
-  const [activeTab, setActiveTab] = useState<ExpandedTab>('status');
-  const monitoringCopy = getMonitoringCopy(monitoring);
+  const [activeTab, setActiveTab] = useState<ExpandedTab>('overview');
 
   useEffect(() => {
     void resizeCompanion(mode);
@@ -54,10 +51,7 @@ export function App() {
           type="button"
         >
           <img alt="" src={popMark} />
-          <span
-            aria-label={monitoring ? 'Monitoring on' : 'Monitoring off'}
-            className={`presence-dot ${monitoring ? 'presence-dot--on' : ''}`}
-          />
+          <span aria-label="POP is running" className="presence-dot presence-dot--local" />
         </button>
       </main>
     );
@@ -76,7 +70,7 @@ export function App() {
           <img alt="" className="brand-mark" src={popMark} />
           <span className="brand-copy">
             <strong>POP</strong>
-            <small>{monitoring ? 'Monitoring on' : 'Monitoring off'}</small>
+            <small>Desktop shell preview</small>
           </span>
           <GripHorizontal aria-hidden="true" className="drag-grip" size={16} />
         </button>
@@ -109,18 +103,13 @@ export function App() {
 
       {mode === 'compact' ? (
         <section className="compact-content" aria-live="polite">
-          <div className={`status-orb ${monitoring ? 'status-orb--active' : ''}`}>
-            {monitoring ? (
-              <Radio aria-hidden="true" size={19} />
-            ) : (
-              <ShieldCheck aria-hidden="true" size={19} />
-            )}
+          <div className="status-orb status-orb--active">
+            <MonitorCheck aria-hidden="true" size={19} />
           </div>
           <div className="compact-copy">
-            <strong>{monitoringCopy.title}</strong>
-            <span>{monitoringCopy.detail}</span>
+            <strong>Desktop shell is running</strong>
+            <span>Context and AI are not connected.</span>
           </div>
-          <MonitoringSwitch checked={monitoring} onChange={setMonitoring} />
           <button
             aria-label="Open POP details"
             className="details-button"
@@ -133,32 +122,27 @@ export function App() {
         </section>
       ) : (
         <section className="expanded-content">
-          <div className="monitoring-row" aria-live="polite">
-            <div
-              className={`status-orb status-orb--large ${monitoring ? 'status-orb--active' : ''}`}
-            >
-              {monitoring ? (
-                <Radio aria-hidden="true" size={21} />
-              ) : (
-                <ShieldCheck aria-hidden="true" size={21} />
-              )}
+          <div className="runtime-summary" aria-live="polite">
+            <div className="status-orb status-orb--large status-orb--active">
+              <MonitorCheck aria-hidden="true" size={21} />
             </div>
             <div>
-              <span className="eyebrow">Monitoring</span>
-              <strong>{monitoring ? 'On' : 'Off'}</strong>
+              <span className="eyebrow">Current build</span>
+              <strong>V0.1 desktop shell</strong>
+              <small>Running locally</small>
             </div>
-            <MonitoringSwitch checked={monitoring} onChange={setMonitoring} />
+            <span className="status-badge status-badge--ready">Ready</span>
           </div>
 
           <div aria-label="Expanded view" className="segmented-control" role="tablist">
             <button
-              aria-selected={activeTab === 'status'}
-              className={activeTab === 'status' ? 'is-selected' : ''}
-              onClick={() => setActiveTab('status')}
+              aria-selected={activeTab === 'overview'}
+              className={activeTab === 'overview' ? 'is-selected' : ''}
+              onClick={() => setActiveTab('overview')}
               role="tab"
               type="button"
             >
-              Status
+              Overview
             </button>
             <button
               aria-selected={activeTab === 'privacy'}
@@ -171,79 +155,112 @@ export function App() {
             </button>
           </div>
 
-          {activeTab === 'status' ? (
+          {activeTab === 'overview' ? (
             <div className="tab-panel" role="tabpanel">
               <div className="context-heading">
                 <div>
-                  <span className="eyebrow">Current context</span>
-                  <h1>{monitoringCopy.title}</h1>
+                  <span className="eyebrow">Build status</span>
+                  <h1>What works right now</h1>
                 </div>
-                <Sparkles aria-hidden="true" className="accent-icon" size={20} />
+                <PanelTopClose aria-hidden="true" className="accent-icon" size={20} />
               </div>
 
               <dl className="status-list">
                 <div>
                   <dt>
                     <AppWindow aria-hidden="true" size={17} />
-                    Application
+                    Window and tray
                   </dt>
-                  <dd>None connected</dd>
+                  <dd>
+                    <span className="status-badge status-badge--ready">Working</span>
+                  </dd>
                 </div>
                 <div>
                   <dt>
-                    <MessageCircleMore aria-hidden="true" size={17} />
-                    Suggestion
+                    <MessageCircleOff aria-hidden="true" size={17} />
+                    Context and AI
                   </dt>
-                  <dd>Waiting for an approved source</dd>
+                  <dd>
+                    <span className="status-badge">Not built</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>
+                    <ShieldCheck aria-hidden="true" size={17} />
+                    Safe actions
+                  </dt>
+                  <dd>
+                    <span className="status-badge">Design only</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>
+                    <Database aria-hidden="true" size={17} />
+                    Memory
+                  </dt>
+                  <dd>
+                    <span className="status-badge">Design only</span>
+                  </dd>
                 </div>
               </dl>
 
-              <div className="empty-state">
-                <CircleOff aria-hidden="true" size={22} />
-                <div>
-                  <strong>No context available</strong>
-                  <span>VS Code and Chrome adapters are not connected yet.</span>
-                </div>
+              <div className="build-note">
+                <strong>No assistant response is available yet.</strong>
+                <span>POP cannot inspect apps or call Groq in this build.</span>
               </div>
             </div>
           ) : (
             <div className="tab-panel" role="tabpanel">
               <div className="context-heading">
                 <div>
-                  <span className="eyebrow">What POP can see</span>
-                  <h1>Nothing outside POP</h1>
+                  <span className="eyebrow">Privacy status</span>
+                  <h1>Nothing leaves this device</h1>
                 </div>
                 <EyeOff aria-hidden="true" className="accent-icon" size={20} />
               </div>
 
-              <div className="privacy-list">
+              <dl className="status-list privacy-status-list">
                 <div>
-                  <span className="privacy-state privacy-state--allowed">Local</span>
-                  <p>
-                    <strong>Companion controls</strong>
-                    <small>Mode and monitoring state for this session</small>
-                  </p>
+                  <dt>
+                    <AppWindow aria-hidden="true" size={17} />
+                    This POP window
+                  </dt>
+                  <dd>
+                    <span className="status-badge status-badge--local">Local</span>
+                  </dd>
                 </div>
                 <div>
-                  <span className="privacy-state">Blocked</span>
-                  <p>
-                    <strong>Application content</strong>
-                    <small>No adapter or foreground access is active</small>
-                  </p>
+                  <dt>
+                    <EyeOff aria-hidden="true" size={17} />
+                    Apps and browser
+                  </dt>
+                  <dd>No access</dd>
                 </div>
                 <div>
-                  <span className="privacy-state">Blocked</span>
-                  <p>
-                    <strong>Screen, files, microphone</strong>
-                    <small>Unavailable in this phase</small>
-                  </p>
+                  <dt>
+                    <ShieldCheck aria-hidden="true" size={17} />
+                    Screen, files, microphone
+                  </dt>
+                  <dd>No access</dd>
                 </div>
+                <div>
+                  <dt>
+                    <CloudOff aria-hidden="true" size={17} />
+                    Cloud requests
+                  </dt>
+                  <dd>None</dd>
+                </div>
+              </dl>
+
+              <div className="build-note build-note--privacy">
+                <strong>Your Groq key is not used yet.</strong>
+                <span>There is no provider or persistent memory runtime.</span>
               </div>
             </div>
           )}
 
           <footer className="expanded-footer">
-            <span>Local shell</span>
+            <span>v0.1 Phase 1</span>
             <button onClick={() => setMode('tiny')} type="button">
               Tiny mode
             </button>

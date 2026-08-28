@@ -5,8 +5,8 @@ receive minimum structured context from explicitly authorized VS Code and Chrome
 user-invoked assistance, and make cloud activity visible.
 
 The repository now includes the **Phase 1 desktop shell**: a native Tauri window, React interface,
-compact and expanded companion modes, a system tray, and truthful local privacy state. Monitoring is
-off on every launch. It does not collect external context or call an AI provider yet.
+compact and expanded companion modes, a system tray, and truthful local privacy/build status. It does
+not collect external context or call an AI provider yet.
 
 ## Repository map
 
@@ -44,6 +44,12 @@ The [V0.2 completion gate](docs/product/v0.2-completion.md) and
 [V0.3 visual-context design](docs/architecture/visual-context.md) record the Phase 26 stability result
 and the structured-first visual domain without enabling screen access.
 
+The [V0.4 completion gate](docs/product/v0.4-completion.md) records the missing action-runtime
+foundations. The [V0.5 memory design](docs/architecture/memory-system.md) and
+[V0.5 scope](docs/product/v0.5-scope.md) define local-first personalization without enabling storage.
+Use the [current build verification guide](docs/development/current-build-verification.md) to test only
+the behavior that exists today.
+
 ## Current status
 
 - Node.js, pnpm, Git, Rust, Cargo, Visual Studio C++ Build Tools, the Windows SDK, and WebView2 are
@@ -52,3 +58,4 @@ and the structured-first visual domain without enabling screen access.
   covered by automated checks.
 - V0.1 remains incomplete: integrations, permission enforcement, context capture, and AI calls stay
   disabled until their individual phases are implemented and verified.
+- V0.2-V0.5 are gated architecture designs, not executable product versions.
