@@ -26,7 +26,14 @@ Add selective local memory, explicit scope, user inspection and deletion, bounde
 visible personalization. Memory never grants action authority. SQLite and FTS5 come before any optional
 semantic index.
 
+## V0.6: tools and bounded workflows
+
+Prefer approved structured APIs over visual automation. Add a provider-neutral tool registry and
+deterministic policy before MCP adapters, then validate one read integration and one carefully approved
+write. Server metadata and results remain untrusted, credentials remain isolated, and workflows stay
+strictly bounded.
+
 ## Later versions
 
-Evaluate external tools/MCP, project knowledge/RAG, and voice in separate security-reviewed versions.
-Future interfaces are documented as extension points but are not implemented early.
+Evaluate project knowledge/RAG and voice in separate security-reviewed versions. Future interfaces are
+documented as extension points but are not implemented early.

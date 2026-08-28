@@ -50,6 +50,12 @@ foundations. The [V0.5 memory design](docs/architecture/memory-system.md) and
 Use the [current build verification guide](docs/development/current-build-verification.md) to test only
 the behavior that exists today.
 
+The [V0.5 completion gate](docs/product/v0.5-completion.md),
+[V0.6 tool-system design](docs/architecture/tool-system.md), and
+[V0.6 scope](docs/product/v0.6-scope.md) define the Phase 111 boundary without installing an MCP client
+or enabling external tools. The [Phase 111 verification guide](docs/development/v0.6-phase-111-verification.md)
+records the required absence and security checks.
+
 ## Current status
 
 - Node.js, pnpm, Git, Rust, Cargo, Visual Studio C++ Build Tools, the Windows SDK, and WebView2 are
@@ -58,4 +64,4 @@ the behavior that exists today.
   covered by automated checks.
 - V0.1 remains incomplete: integrations, permission enforcement, context capture, and AI calls stay
   disabled until their individual phases are implemented and verified.
-- V0.2-V0.5 are gated architecture designs, not executable product versions.
+- V0.2-V0.6 are gated architecture designs, not executable product versions.
