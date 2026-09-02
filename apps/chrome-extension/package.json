@@ -2,5 +2,17 @@
   "name": "@pop/chrome-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "Reserved Phase 9 boundary for the Chrome Manifest V3 adapter."
+  "description": "Permission-scoped Chrome Manifest V3 context adapter.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@pop/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.38",
+    "esbuild": "0.27.4"
+  }
 }

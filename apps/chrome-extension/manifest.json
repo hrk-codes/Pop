@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "POP Context Adapter",
+  "version": "0.1.0",
+  "description": "Sends approved x.com selections and unsent drafts to local POP Core.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://x.com/*", "http://127.0.0.1:17831/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "POP",
+    "default_popup": "popup.html"
+  }
+}

@@ -3,3 +3,5 @@ dist
 coverage
 target
 pnpm-lock.yaml
+apps/desktop/src-tauri/gen
+.artifacts

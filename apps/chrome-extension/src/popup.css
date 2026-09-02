@@ -1,0 +1,44 @@
+:root {
+  color: #242522;
+  background: #f8f7f3;
+  font:
+    13px/1.45 system-ui,
+    sans-serif;
+}
+body {
+  margin: 0;
+  min-width: 260px;
+}
+main {
+  padding: 16px;
+}
+h1 {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+p {
+  color: #62645f;
+  margin: 0 0 14px;
+}
+form {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+input {
+  border: 1px solid #c9cbc4;
+  border-radius: 5px;
+  font: inherit;
+  padding: 8px;
+}
+button {
+  background: #16845f;
+  border: 0;
+  border-radius: 5px;
+  color: white;
+  font: inherit;
+  padding: 8px;
+}
+small {
+  color: #74766f;
+}

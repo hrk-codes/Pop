@@ -2,5 +2,14 @@
   "name": "@pop/permissions",
   "version": "0.1.0",
   "private": true,
-  "description": "Reserved boundary for deny-by-default access-control decisions."
+  "description": "Deny-by-default access-control decisions.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@pop/protocol": "workspace:*"
+  }
 }

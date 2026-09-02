@@ -5,6 +5,7 @@
 
 # JavaScript / TypeScript
 node_modules/
+.artifacts/
 .pnpm-store/
 dist/
 coverage/

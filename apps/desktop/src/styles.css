@@ -28,7 +28,8 @@ body,
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -347,10 +348,20 @@ button {
   color: #272825;
 }
 
+.segmented-control--three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .tab-panel {
   min-height: 0;
   flex: 1;
   padding-top: 18px;
+}
+
+.scroll-panel {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 3px;
 }
 
 .context-heading {
@@ -433,6 +444,238 @@ button {
   color: #74776f;
   font-size: 10px;
   line-height: 14px;
+}
+
+.context-preview,
+.empty-state {
+  margin-top: 14px;
+  border: 1px solid #deddd7;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.context-preview {
+  padding: 12px;
+}
+
+.context-preview p,
+.result-item p {
+  margin: 0;
+  color: #343531;
+  font-size: 11px;
+  line-height: 17px;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.context-preview span {
+  display: block;
+  margin-top: 8px;
+  color: #858880;
+  font-size: 9px;
+}
+
+.empty-state {
+  display: grid;
+  min-height: 105px;
+  padding: 16px;
+  place-items: center;
+  color: #777a72;
+  text-align: center;
+}
+
+.empty-state strong {
+  color: #343531;
+  font-size: 12px;
+}
+
+.empty-state span {
+  font-size: 10px;
+}
+
+.assist-controls {
+  display: grid;
+  margin-top: 12px;
+  grid-template-columns: 115px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.assist-controls label {
+  display: grid;
+  gap: 4px;
+}
+
+.assist-controls label > span,
+.pairing-code > span {
+  color: #777a72;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.assist-controls select {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #d9d8d2;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #30312e;
+  font-size: 10px;
+}
+
+.primary-button {
+  display: flex;
+  min-width: 0;
+  height: 34px;
+  margin-top: 16px;
+  padding: 0 11px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: #e75a47;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+  gap: 6px;
+}
+
+.primary-button:disabled {
+  background: #d5d3cc;
+  color: #777a72;
+  cursor: default;
+}
+
+.result-item {
+  display: grid;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #d9d8d2;
+  border-radius: 7px;
+  background: #ffffff;
+  gap: 10px;
+}
+
+.result-item button,
+.text-button {
+  display: flex;
+  width: max-content;
+  height: 28px;
+  padding: 0 9px;
+  align-items: center;
+  border: 1px solid #d9d8d2;
+  border-radius: 5px;
+  background: #f6f5f1;
+  color: #3d3f3a;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 5px;
+}
+
+.pairing-code {
+  display: grid;
+  margin-top: 15px;
+  padding: 13px;
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  align-items: center;
+  border: 1px solid #deddd7;
+  border-radius: 7px;
+  background: #ffffff;
+  gap: 9px;
+}
+
+.pairing-code strong {
+  color: #252622;
+  font-size: 20px;
+  letter-spacing: 2px;
+}
+
+.pairing-code button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: #f0efea;
+  cursor: pointer;
+}
+
+.permission-list {
+  display: grid;
+  margin-top: 15px;
+}
+
+.permission-list label {
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e7e5df;
+  gap: 16px;
+}
+
+.permission-list label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.permission-list strong {
+  font-size: 11px;
+}
+
+.permission-list small {
+  color: #777a72;
+  font-size: 9px;
+}
+
+.permission-list input {
+  width: 34px;
+  height: 18px;
+  accent-color: #24986f;
+}
+
+.privacy-note,
+.error-banner {
+  display: flex;
+  margin-top: 14px;
+  padding: 11px;
+  align-items: flex-start;
+  border-left: 3px solid #24986f;
+  background: #eef6f2;
+  color: #4f544d;
+  font-size: 10px;
+  line-height: 15px;
+  gap: 8px;
+}
+
+.privacy-note svg {
+  flex: 0 0 auto;
+}
+
+.error-banner {
+  margin-top: 8px;
+  border-left-color: #d94d3c;
+  background: #faeeeb;
+  color: #8a3025;
+}
+
+.expanded-footer strong {
+  color: #555850;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .expanded-footer {

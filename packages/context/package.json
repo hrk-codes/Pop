@@ -2,5 +2,14 @@
   "name": "@pop/context",
   "version": "0.1.0",
   "private": true,
-  "description": "Reserved boundary for context normalization, classification, and sanitization."
+  "description": "Context normalization, classification, sanitization, and expiry.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@pop/protocol": "workspace:*"
+  }
 }

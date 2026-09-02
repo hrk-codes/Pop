@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>POP Adapter</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>POP</h1>
+      <p id="status">Checking local connection...</p>
+      <form id="pair-form">
+        <label for="pairing-code">Pairing code</label>
+        <input id="pairing-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required />
+        <button type="submit">Connect</button>
+      </form>
+      <small>Only approved x.com selections and unsent drafts are observed.</small>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

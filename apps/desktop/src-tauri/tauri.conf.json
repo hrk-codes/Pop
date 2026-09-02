@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "POP",
-        "width": 388,
-        "height": 560,
+        "width": 438,
+        "height": 720,
         "minWidth": 112,
         "minHeight": 112,
         "alwaysOnTop": true,

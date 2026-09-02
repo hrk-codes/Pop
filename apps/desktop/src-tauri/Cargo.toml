@@ -14,7 +14,22 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
+dotenvy = "0.15.7"
+futures-util = "0.3.31"
+keyring = { version = "3.6.3", features = ["windows-native"] }
+rand = "0.9.2"
+regex = "1.12.3"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+rusqlite = { version = "0.39.0", features = ["bundled"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sha2 = "0.10.9"
 tauri = { version = "2.11.5", features = ["image-png", "tray-icon"] }
+tokio = { version = "1.49.0", features = ["net", "sync", "time"] }
+tokio-tungstenite = "0.29.0"
+uuid = { version = "1.21.0", features = ["v4"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+zeroize = "1.8.2"
 
 [features]
 default = ["custom-protocol"]

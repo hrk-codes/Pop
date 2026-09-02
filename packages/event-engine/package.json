@@ -2,5 +2,14 @@
   "name": "@pop/event-engine",
   "version": "0.1.0",
   "private": true,
-  "description": "Reserved boundary for deterministic suggestions and intent classification."
+  "description": "Deterministic suggestions and intent classification.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@pop/context": "workspace:*"
+  }
 }

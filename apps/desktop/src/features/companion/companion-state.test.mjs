@@ -6,7 +6,7 @@ import { COMPANION_DIMENSIONS, getNextExpandedMode } from './companion-state.ts'
 test('companion modes have stable dimensions', () => {
   assert.deepEqual(COMPANION_DIMENSIONS.tiny, { width: 112, height: 112 });
   assert.deepEqual(COMPANION_DIMENSIONS.compact, { width: 324, height: 168 });
-  assert.deepEqual(COMPANION_DIMENSIONS.expanded, { width: 388, height: 560 });
+  assert.deepEqual(COMPANION_DIMENSIONS.expanded, { width: 438, height: 720 });
 });
 
 test('expanded toggle returns to compact mode', () => {

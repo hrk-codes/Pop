@@ -2,5 +2,11 @@
   "name": "@pop/security",
   "version": "0.1.0",
   "private": true,
-  "description": "Reserved boundary for sensitive-data checks and safe structured logging."
+  "description": "Sensitive-data checks and safe structured logging.",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json"
+  }
 }
