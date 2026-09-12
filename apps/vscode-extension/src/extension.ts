@@ -7,6 +7,15 @@ const TOKEN_KEY = 'pop.sessionToken';
 let socket: WebSocket | undefined;
 let statusItem: vscode.StatusBarItem;
 let pendingContext: ContextObservation | undefined;
+let selectionTimer: NodeJS.Timeout | undefined;
+let previousSelectionFingerprint = '';
+
+function editorIdentity(): { applicationId: 'vscode' | 'cursor'; platformId: 'VSCODE' | 'CURSOR' } {
+  const isCursor = vscode.env.appName.toLowerCase().includes('cursor');
+  return isCursor
+    ? { applicationId: 'cursor', platformId: 'CURSOR' }
+    : { applicationId: 'vscode', platformId: 'VSCODE' };
+}
 
 function updateStatus(text: string, tooltip: string): void {
   statusItem.text = `$(hubot) POP: ${text}`;
@@ -72,10 +81,12 @@ function selectedCode(): ContextObservation | undefined {
   if (!editor || editor.selection.isEmpty) return undefined;
   const text = editor.document.getText(editor.selection).trim();
   if (!text) return undefined;
+  const identity = editorIdentity();
   return {
     kind: 'SELECTED_CODE',
+    platformId: identity.platformId,
     text: text.slice(0, 12_000),
-    applicationId: 'vscode',
+    applicationId: identity.applicationId,
     languageId: editor.document.languageId,
     documentUri: editor.document.uri.toString(),
     title: vscode.workspace.asRelativePath(editor.document.uri),
@@ -121,6 +132,19 @@ export function activate(context: vscode.ExtensionContext): void {
       pendingContext = observation;
       if (socket?.readyState !== WebSocket.OPEN) await connect(context);
       else sendContext(observation);
+    }),
+    vscode.window.onDidChangeTextEditorSelection(() => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        const observation = selectedCode();
+        if (!observation) return;
+        const fingerprint = `${observation.documentUri}:${observation.text}`;
+        if (fingerprint === previousSelectionFingerprint) return;
+        previousSelectionFingerprint = fingerprint;
+        pendingContext = observation;
+        if (socket?.readyState === WebSocket.OPEN) sendContext(observation);
+        else void connect(context);
+      }, 650);
     }),
   );
 

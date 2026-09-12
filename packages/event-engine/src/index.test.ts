@@ -11,7 +11,8 @@ describe('suggestion engine', () => {
       createdAt: 1,
       expiresAt: 2,
       observation: {
-        kind: 'X_DRAFT',
+        kind: 'DRAFT_TEXT',
+        platformId: 'X',
         text: 'i build pop today',
         applicationId: 'chrome',
         domain: 'x.com',

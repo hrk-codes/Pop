@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
 
@@ -143,6 +143,60 @@ async fn handle_connection(stream: TcpStream, core: PopCore, app: AppHandle) -> 
                         .await?;
                     }
                 }
+            }
+            EnvelopePayload::PlatformPermission(permission) => {
+                if registered_source != Some(AdapterSource::Chrome)
+                    || source != AdapterSource::Chrome
+                {
+                    send_message(
+                        &mut socket,
+                        &ServerMessage::Error {
+                            code: "PERMISSION_SOURCE_DENIED".to_owned(),
+                            message: "Only the paired Chrome adapter may synchronize site access."
+                                .to_owned(),
+                        },
+                    )
+                    .await?;
+                    continue;
+                }
+                match core.set_platform_permission(permission.platform_id, permission.enabled) {
+                    Ok(()) => {
+                        send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
+                        let _ = app.emit("pop://runtime-updated", core.snapshot());
+                    }
+                    Err(code) => {
+                        send_message(
+                            &mut socket,
+                            &ServerMessage::Error {
+                                code,
+                                message: "Site permission could not be persisted.".to_owned(),
+                            },
+                        )
+                        .await?;
+                    }
+                }
+            }
+            EnvelopePayload::UiCommand(payload) => {
+                if registered_source != Some(source) {
+                    send_message(
+                        &mut socket,
+                        &ServerMessage::Error {
+                            code: "ADAPTER_NOT_REGISTERED".to_owned(),
+                            message: "Pair this adapter before opening POP.".to_owned(),
+                        },
+                    )
+                    .await?;
+                    continue;
+                }
+                match payload.command {
+                    crate::protocol::UiCommand::Show => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
             }
             EnvelopePayload::Heartbeat(_) => {
                 send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;

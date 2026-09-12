@@ -1,5 +1,6 @@
 mod core;
 mod foreground;
+mod grammar;
 mod groq;
 mod protocol;
 mod security;
@@ -9,9 +10,10 @@ mod storage;
 use std::path::PathBuf;
 
 use core::{PopCore, RuntimeSnapshot, now_ms};
+use grammar::WritingAnalysis;
 use groq::{AssistanceResponse, GroqProvider};
 use serde::Serialize;
-use storage::Store;
+use storage::{LearnedHabit, Store};
 use tauri::{
     AppHandle, Emitter, Manager, State, WindowEvent,
     menu::{Menu, MenuItem},
@@ -46,19 +48,25 @@ fn get_runtime_snapshot(core: State<'_, PopCore>) -> RuntimeSnapshot {
 }
 
 #[tauri::command]
-fn set_permission(
-    key: String,
+fn set_monitoring(
     value: bool,
     app: AppHandle,
     core: State<'_, PopCore>,
 ) -> Result<RuntimeSnapshot, String> {
-    if !matches!(
-        key.as_str(),
-        "monitoring_enabled" | "x_allowed" | "vscode_allowed"
-    ) {
-        return Err("UNKNOWN_SETTING".to_owned());
-    }
-    core.set_permission(&key, value)?;
+    core.set_monitoring(value)?;
+    let snapshot = core.snapshot();
+    let _ = app.emit("pop://runtime-updated", &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn set_platform_permission(
+    platform_id: protocol::PlatformId,
+    value: bool,
+    app: AppHandle,
+    core: State<'_, PopCore>,
+) -> Result<RuntimeSnapshot, String> {
+    core.set_platform_permission(platform_id, value)?;
     let snapshot = core.snapshot();
     let _ = app.emit("pop://runtime-updated", &snapshot);
     Ok(snapshot)
@@ -89,11 +97,36 @@ async fn provider_health(provider: State<'_, ProviderState>) -> Result<ProviderH
 fn task_matches_context(task: &str, kind: protocol::ContextKind) -> bool {
     matches!(
         (task, kind),
-        ("IMPROVE_WRITING", protocol::ContextKind::XDraft)
-            | ("DRAFT_X_REPLY", protocol::ContextKind::XPost)
+        ("IMPROVE_WRITING", protocol::ContextKind::DraftText)
+            | ("IMPROVE_WRITING", protocol::ContextKind::SearchQuery)
+            | ("DRAFT_REPLY", protocol::ContextKind::SocialPost)
+            | ("DRAFT_REPLY", protocol::ContextKind::Conversation)
             | ("EXPLAIN_CODE", protocol::ContextKind::SelectedCode)
+            | ("REVIEW_CODE", protocol::ContextKind::SelectedCode)
             | ("EXPLAIN_TEXT", protocol::ContextKind::SelectedText)
+            | ("EXPLAIN_TEXT", protocol::ContextKind::ArticleText)
+            | ("EXPLAIN_TEXT", protocol::ContextKind::SocialPost)
+            | ("EXPLAIN_TEXT", protocol::ContextKind::Conversation)
+            | ("SUMMARIZE", protocol::ContextKind::SelectedText)
+            | ("SUMMARIZE", protocol::ContextKind::ArticleText)
+            | ("SUMMARIZE", protocol::ContextKind::SocialPost)
+            | ("SUMMARIZE", protocol::ContextKind::Conversation)
     )
+}
+
+#[tauri::command]
+async fn check_writing(core: State<'_, PopCore>) -> Result<WritingAnalysis, String> {
+    let context = core.fresh_context().map_err(str::to_owned)?;
+    if !matches!(
+        context.observation.kind,
+        protocol::ContextKind::DraftText | protocol::ContextKind::SearchQuery
+    ) {
+        return Err("WRITING_CONTEXT_REQUIRED".to_owned());
+    }
+    let text = context.observation.text;
+    tauri::async_runtime::spawn_blocking(move || grammar::analyze(&text))
+        .await
+        .map_err(|_| "GRAMMAR_ENGINE_FAILED".to_owned())
 }
 
 #[tauri::command]
@@ -146,6 +179,42 @@ async fn run_assistance(
     result
 }
 
+#[tauri::command]
+fn record_copy_preference(
+    task: String,
+    tone: String,
+    output_chars: usize,
+    core: State<'_, PopCore>,
+) -> Result<Vec<LearnedHabit>, String> {
+    if task.len() > 40 || tone.len() > 20 || output_chars > 100_000 {
+        return Err("INVALID_PREFERENCE_SIGNAL".to_owned());
+    }
+    let store = core.store();
+    let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
+    store.record_copy_preference(&task, &tone, output_chars, now_ms())?;
+    store.learned_habits()
+}
+
+#[tauri::command]
+fn get_learned_habits(core: State<'_, PopCore>) -> Result<Vec<LearnedHabit>, String> {
+    let store = core.store();
+    store
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .learned_habits()
+}
+
+#[tauri::command]
+fn forget_habit(id: String, core: State<'_, PopCore>) -> Result<Vec<LearnedHabit>, String> {
+    if id.len() > 100 {
+        return Err("INVALID_HABIT_ID".to_owned());
+    }
+    let store = core.store();
+    let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
+    store.forget_habit(&id)?;
+    store.learned_habits()
+}
+
 fn env_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../.env")
 }
@@ -162,6 +231,8 @@ pub fn run() {
             let core = PopCore::new(store, permissions, provider.is_some());
             app.manage(core.clone());
             app.manage(ProviderState(provider));
+
+            tauri::async_runtime::spawn_blocking(grammar::warm_up);
 
             let server_core = core.clone();
             let server_app = app.handle().clone();
@@ -209,10 +280,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_runtime_snapshot,
-            set_permission,
+            set_monitoring,
+            set_platform_permission,
             regenerate_pairing_code,
             provider_health,
-            run_assistance
+            check_writing,
+            run_assistance,
+            record_copy_preference,
+            get_learned_habits,
+            forget_habit
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

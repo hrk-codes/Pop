@@ -1,6 +1,6 @@
 import type { AdapterSource, ContextObservation } from '@pop/protocol';
 
-export type Activity = 'READING' | 'WRITING' | 'CODING' | 'UNKNOWN';
+export type Activity = 'READING' | 'WRITING' | 'SEARCHING' | 'MESSAGING' | 'CODING' | 'UNKNOWN';
 
 export interface RawEvent {
   id: string;
@@ -22,12 +22,17 @@ export const DEFAULT_CONTEXT_TTL_MS = 120_000;
 
 export function classifyActivity(observation: ContextObservation): Activity {
   switch (observation.kind) {
-    case 'X_DRAFT':
+    case 'DRAFT_TEXT':
       return 'WRITING';
+    case 'SEARCH_QUERY':
+      return 'SEARCHING';
+    case 'CONVERSATION':
+    case 'SOCIAL_POST':
+      return 'MESSAGING';
     case 'SELECTED_CODE':
       return 'CODING';
     case 'SELECTED_TEXT':
-    case 'X_POST':
+    case 'ARTICLE_TEXT':
       return 'READING';
   }
 }

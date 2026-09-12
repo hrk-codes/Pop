@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { evaluateContextPermission } from './index';
 
 const observation = {
-  kind: 'X_DRAFT' as const,
+  kind: 'DRAFT_TEXT' as const,
+  platformId: 'X' as const,
   text: 'A draft',
   applicationId: 'chrome',
   domain: 'x.com',
@@ -16,6 +17,7 @@ describe('permission engine', () => {
       evaluateContextPermission('CHROME', observation, {
         monitoringEnabled: false,
         allowedApplications: [],
+        allowedPlatforms: [],
         allowedDomains: [],
         allowedContextKinds: [],
       }),
@@ -27,8 +29,9 @@ describe('permission engine', () => {
       evaluateContextPermission('CHROME', observation, {
         monitoringEnabled: true,
         allowedApplications: ['chrome'],
+        allowedPlatforms: ['X'],
         allowedDomains: ['x.com'],
-        allowedContextKinds: ['X_DRAFT'],
+        allowedContextKinds: ['DRAFT_TEXT'],
       }).decision,
     ).toBe('ALLOW');
   });

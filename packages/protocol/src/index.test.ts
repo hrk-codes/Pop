@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseProtocolEnvelope } from './index';
+import { parseProtocolEnvelope, PROTOCOL_VERSION } from './index';
 
 describe('protocol envelope', () => {
   it('accepts a bounded Chrome context message', () => {
     const envelope = parseProtocolEnvelope({
-      version: 1,
+      version: PROTOCOL_VERSION,
       id: '9fd4929d-07c8-4ce5-bd38-1d9566f77ad0',
       source: 'CHROME',
       type: 'CONTEXT',
       timestamp: 1,
       payload: {
-        kind: 'X_DRAFT',
+        kind: 'DRAFT_TEXT',
+        platformId: 'X',
         text: 'Building POP in public.',
         applicationId: 'chrome',
         domain: 'x.com',
@@ -31,7 +32,8 @@ describe('protocol envelope', () => {
         type: 'CONTEXT',
         timestamp: 1,
         payload: {
-          kind: 'X_DRAFT',
+          kind: 'DRAFT_TEXT',
+          platformId: 'X',
           text: 'x'.repeat(12_001),
           applicationId: 'chrome',
           domain: 'x.com',
@@ -39,5 +41,18 @@ describe('protocol envelope', () => {
         },
       }),
     ).toThrow();
+  });
+
+  it('accepts a Chrome platform permission decision', () => {
+    const envelope = parseProtocolEnvelope({
+      version: PROTOCOL_VERSION,
+      id: crypto.randomUUID(),
+      source: 'CHROME',
+      type: 'PLATFORM_PERMISSION',
+      timestamp: 1,
+      payload: { platformId: 'YOUTUBE', enabled: true },
+    });
+
+    expect(envelope.type).toBe('PLATFORM_PERMISSION');
   });
 });

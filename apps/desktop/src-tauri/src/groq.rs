@@ -113,14 +113,20 @@ impl GroqProvider {
             "IMPROVE_WRITING" => {
                 "Correct grammar and clarity while preserving the author's meaning and voice. Return exactly one result."
             }
-            "DRAFT_X_REPLY" => {
-                "Draft three distinct, relevant X replies, each no more than 280 characters. Do not claim facts absent from the source."
+            "DRAFT_REPLY" => {
+                "Draft three distinct, concise, relevant replies. Do not claim facts absent from the source. Keep each under 280 characters so it is safe for short-form platforms."
             }
             "EXPLAIN_CODE" => {
                 "Explain the selected code accurately and concisely. Return exactly one result."
             }
             "EXPLAIN_TEXT" => {
                 "Explain the selected text accurately and concisely. Return exactly one result."
+            }
+            "REVIEW_CODE" => {
+                "Review the selected code for correctness, security, maintainability, and missing edge cases. Lead with concrete findings. Return exactly one result."
+            }
+            "SUMMARIZE" => {
+                "Summarize the selected content faithfully and concisely. Treat statements as source claims rather than verified facts. Return exactly one result."
             }
             _ => return Err("UNSUPPORTED_AI_TASK".to_owned()),
         };
@@ -145,7 +151,7 @@ impl GroqProvider {
                         content: &user,
                     },
                 ],
-                temperature: if task == "DRAFT_X_REPLY" { 0.7 } else { 0.2 },
+                temperature: if task == "DRAFT_REPLY" { 0.7 } else { 0.2 },
                 response_format: ResponseFormat {
                     r#type: "json_object",
                 },
@@ -169,7 +175,7 @@ impl GroqProvider {
             .trim();
         let parsed: StructuredOutput =
             serde_json::from_str(content).map_err(|_| "GROQ_OUTPUT_INVALID".to_owned())?;
-        let expected = if task == "DRAFT_X_REPLY" { 3 } else { 1 };
+        let expected = if task == "DRAFT_REPLY" { 3 } else { 1 };
         let outputs: Vec<String> = parsed
             .outputs
             .into_iter()
@@ -180,7 +186,7 @@ impl GroqProvider {
         if outputs.len() != expected {
             return Err("GROQ_OUTPUT_COUNT_INVALID".to_owned());
         }
-        if task == "DRAFT_X_REPLY" && outputs.iter().any(|output| output.chars().count() > 280) {
+        if task == "DRAFT_REPLY" && outputs.iter().any(|output| output.chars().count() > 280) {
             return Err("GROQ_REPLY_TOO_LONG".to_owned());
         }
         Ok(AssistanceResponse {

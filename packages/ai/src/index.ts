@@ -2,9 +2,11 @@ import { z } from 'zod';
 
 export const aiTaskSchema = z.enum([
   'EXPLAIN_CODE',
+  'REVIEW_CODE',
   'EXPLAIN_TEXT',
   'IMPROVE_WRITING',
-  'DRAFT_X_REPLY',
+  'DRAFT_REPLY',
+  'SUMMARIZE',
 ]);
 export type AITask = z.infer<typeof aiTaskSchema>;
 

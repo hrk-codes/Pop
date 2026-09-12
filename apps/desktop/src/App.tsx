@@ -6,6 +6,7 @@ import {
   Cloud,
   Code2,
   Copy,
+  Brain,
   Globe2,
   GripHorizontal,
   LoaderCircle,
@@ -14,6 +15,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 
@@ -23,34 +25,67 @@ import { useCompanionStore } from './features/companion/store';
 import { hideCompanion, resizeCompanion, startWindowDrag } from './features/companion/window';
 import {
   checkProvider,
+  checkWriting,
+  forgetLearnedHabit,
+  getLearnedHabits,
   getRuntimeSnapshot,
   isTauriRuntime,
   onCloudActivity,
   onRuntimeUpdate,
   refreshPairingCode,
+  recordCopyPreference,
   requestAssistance,
-  updatePermission,
+  updateMonitoring,
+  updatePlatformPermission,
   type AssistanceResponse,
-  type AssistanceTask,
   type ContextKind,
+  type LearnedHabit,
+  type PlatformId,
   type RuntimeSnapshot,
+  type SuggestionOption,
+  type WritingAnalysis,
 } from './features/runtime/runtime-client';
 
-type ExpandedTab = 'assist' | 'connect' | 'privacy';
+type ExpandedTab = 'assist' | 'connect' | 'privacy' | 'memory';
 type HealthState = 'idle' | 'checking' | 'ready' | 'failed';
 
-const TASKS: Record<ContextKind, AssistanceTask> = {
-  X_DRAFT: 'IMPROVE_WRITING',
-  X_POST: 'DRAFT_X_REPLY',
-  SELECTED_CODE: 'EXPLAIN_CODE',
-  SELECTED_TEXT: 'EXPLAIN_TEXT',
-};
+const PLATFORMS: Array<{
+  id: PlatformId;
+  label: string;
+  scope: string;
+  adapter: 'browser' | 'editor';
+}> = [
+  { id: 'X', label: 'X', scope: 'Drafts and selected posts', adapter: 'browser' },
+  {
+    id: 'GOOGLE',
+    label: 'Google',
+    scope: 'Search queries and selected results',
+    adapter: 'browser',
+  },
+  { id: 'YOUTUBE', label: 'YouTube', scope: 'Comments and selected text', adapter: 'browser' },
+  {
+    id: 'WHATSAPP',
+    label: 'WhatsApp Web',
+    scope: 'Drafts and selected messages',
+    adapter: 'browser',
+  },
+  { id: 'CHATGPT', label: 'ChatGPT', scope: 'Drafts and selected responses', adapter: 'browser' },
+  { id: 'CLAUDE', label: 'Claude', scope: 'Drafts and selected responses', adapter: 'browser' },
+  { id: 'VSCODE', label: 'VS Code', scope: 'Stable code selections', adapter: 'editor' },
+  { id: 'CURSOR', label: 'Cursor', scope: 'Stable code selections', adapter: 'editor' },
+];
+
+const EMPTY_PLATFORMS = Object.fromEntries(PLATFORMS.map(({ id }) => [id, false])) as Record<
+  PlatformId,
+  boolean
+>;
 
 const EMPTY_RUNTIME: RuntimeSnapshot = {
   pairingCode: '------',
-  permissions: { monitoringEnabled: false, xAllowed: false, vscodeAllowed: false },
+  permissions: { monitoringEnabled: false, platforms: EMPTY_PLATFORMS },
   connectedAdapters: [],
   currentContext: null,
+  suggestions: [],
   suggestion: null,
   providerConfigured: false,
 };
@@ -62,11 +97,23 @@ function errorText(error: unknown): string {
 }
 
 function contextLabel(kind?: ContextKind): string {
-  if (kind === 'X_DRAFT') return 'X draft';
-  if (kind === 'X_POST') return 'X post';
-  if (kind === 'SELECTED_CODE') return 'Selected code';
-  if (kind === 'SELECTED_TEXT') return 'Selected text';
-  return 'No context';
+  const labels: Partial<Record<ContextKind, string>> = {
+    DRAFT_TEXT: 'Writing draft',
+    SOCIAL_POST: 'Selected post',
+    SEARCH_QUERY: 'Search query',
+    CONVERSATION: 'Conversation',
+    ARTICLE_TEXT: 'Page selection',
+    SELECTED_TEXT: 'Selected text',
+    SELECTED_CODE: 'Selected code',
+  };
+  return kind ? (labels[kind] ?? 'Current context') : 'No context yet';
+}
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
 }
 
 export function App() {
@@ -79,12 +126,13 @@ export function App() {
   const [health, setHealth] = useState<HealthState>('idle');
   const [tone, setTone] = useState('natural');
   const [response, setResponse] = useState<AssistanceResponse | null>(null);
+  const [writing, setWriting] = useState<WritingAnalysis | null>(null);
+  const [activeTask, setActiveTask] = useState<string | null>(null);
+  const [resultTask, setResultTask] = useState<string | null>(null);
+  const [habits, setHabits] = useState<LearnedHabit[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const currentTask = runtime.currentContext
-    ? TASKS[runtime.currentContext.observation.kind]
-    : null;
   const contextPreview = useMemo(() => {
     const text = runtime.currentContext?.observation.text ?? '';
     return text.length > 360 ? `${text.slice(0, 360)}...` : text;
@@ -113,9 +161,14 @@ export function App() {
       .finally(() => {
         if (!disposed) setLoading(false);
       });
-    void onRuntimeUpdate((snapshot) => setRuntime(snapshot)).then((unlisten) =>
-      cleanup.push(unlisten),
-    );
+    void getLearnedHabits().then((items) => {
+      if (!disposed) setHabits(items);
+    });
+    void onRuntimeUpdate((snapshot) => {
+      setRuntime(snapshot);
+      setResponse(null);
+      setWriting(null);
+    }).then((unlisten) => cleanup.push(unlisten));
     void onCloudActivity(setCloudActive).then((unlisten) => cleanup.push(unlisten));
     return () => {
       disposed = true;
@@ -123,35 +176,52 @@ export function App() {
     };
   }, []);
 
-  async function changePermission(
-    key: 'monitoring_enabled' | 'x_allowed' | 'vscode_allowed',
-    value: boolean,
-  ): Promise<void> {
+  async function changeMonitoring(value: boolean): Promise<void> {
     setError(null);
     try {
-      setRuntime(await updatePermission(key, value));
-      setResponse(null);
+      setRuntime(await updateMonitoring(value));
     } catch (nextError) {
       setError(errorText(nextError));
     }
   }
 
-  async function runTask(): Promise<void> {
-    if (!currentTask) return;
+  async function changePlatform(platformId: PlatformId, value: boolean): Promise<void> {
+    setError(null);
+    try {
+      setRuntime(await updatePlatformPermission(platformId, value));
+    } catch (nextError) {
+      setError(errorText(nextError));
+    }
+  }
+
+  async function runTask(option: SuggestionOption): Promise<void> {
     setError(null);
     setResponse(null);
-    setCloudActive(true);
+    setWriting(null);
+    setActiveTask(option.task);
     try {
-      setResponse(await requestAssistance(currentTask, tone));
+      if (option.task === 'CHECK_WRITING') {
+        setWriting(await checkWriting());
+      } else {
+        setResponse(await requestAssistance(option.task, tone));
+      }
+      setResultTask(option.task);
     } catch (nextError) {
       setError(errorText(nextError));
     } finally {
-      setCloudActive(false);
+      setActiveTask(null);
     }
   }
 
   async function copyOutput(output: string, index: number): Promise<void> {
     await navigator.clipboard.writeText(output);
+    if (resultTask) {
+      try {
+        setHabits(await recordCopyPreference(resultTask, tone, output.length));
+      } catch {
+        // Copy remains useful even if optional preference learning is unavailable.
+      }
+    }
     setCopied(index);
     window.setTimeout(() => setCopied(null), 1_500);
   }
@@ -193,6 +263,8 @@ export function App() {
   }
 
   const connected = runtime.connectedAdapters.length > 0;
+  const currentPlatform = runtime.currentContext?.observation.platformId;
+
   return (
     <main className={`companion companion--${mode}`} data-testid="pop-companion">
       <header className="titlebar">
@@ -206,9 +278,7 @@ export function App() {
           <span className="brand-copy">
             <strong>POP</strong>
             <small>
-              {runtime.currentContext
-                ? contextLabel(runtime.currentContext.observation.kind)
-                : 'Private desktop copilot'}
+              {currentPlatform ? `${currentPlatform} context` : 'Private desktop copilot'}
             </small>
           </span>
           <GripHorizontal aria-hidden="true" className="drag-grip" size={16} />
@@ -239,13 +309,11 @@ export function App() {
             {runtime.currentContext ? <Sparkles size={19} /> : <ShieldCheck size={19} />}
           </div>
           <div className="compact-copy">
-            <strong>
-              {runtime.currentContext ? runtime.suggestion : 'Waiting for approved context'}
-            </strong>
+            <strong>{runtime.suggestion ?? `${greeting()}, POP is ready`}</strong>
             <span>
               {connected
                 ? `${runtime.connectedAdapters.join(' + ')} connected`
-                : 'Pair Chrome or VS Code'}
+                : 'Connect a source'}
             </span>
           </div>
           <button
@@ -272,9 +340,13 @@ export function App() {
                   ? 'Starting POP Core'
                   : runtime.currentContext
                     ? 'Context ready'
-                    : 'Waiting locally'}
+                    : greeting()}
               </strong>
-              <small>{runtime.providerConfigured ? 'Groq configured' : 'Groq key missing'}</small>
+              <small>
+                {connected
+                  ? `${runtime.connectedAdapters.join(' + ')} connected`
+                  : 'No adapter connected'}
+              </small>
             </div>
             <span
               className={`status-badge ${runtime.permissions.monitoringEnabled ? 'status-badge--ready' : ''}`}
@@ -283,8 +355,8 @@ export function App() {
             </span>
           </div>
 
-          <div className="segmented-control segmented-control--three" role="tablist">
-            {(['assist', 'connect', 'privacy'] as const).map((tab) => (
+          <div className="segmented-control segmented-control--four" role="tablist">
+            {(['assist', 'connect', 'privacy', 'memory'] as const).map((tab) => (
               <button
                 className={activeTab === tab ? 'is-selected' : ''}
                 key={tab}
@@ -292,7 +364,13 @@ export function App() {
                 role="tab"
                 type="button"
               >
-                {tab === 'assist' ? 'Assist' : tab === 'connect' ? 'Connect' : 'Privacy'}
+                {tab === 'assist'
+                  ? 'Assist'
+                  : tab === 'connect'
+                    ? 'Connect'
+                    : tab === 'privacy'
+                      ? 'Platforms'
+                      : 'Memory'}
               </button>
             ))}
           </div>
@@ -313,41 +391,80 @@ export function App() {
               {runtime.currentContext ? (
                 <div className="context-preview">
                   <p>{contextPreview}</p>
-                  <span>Expires automatically in two minutes</span>
+                  <span>Temporary context, expires automatically</span>
                 </div>
               ) : (
                 <div className="empty-state">
                   <ShieldCheck size={20} />
-                  <strong>No approved context</strong>
-                  <span>POP has not received a selection or X draft.</span>
+                  <strong>Nothing is being analyzed</strong>
+                  <span>
+                    Turn monitoring on, allow a platform, then select text or pause in a supported
+                    field.
+                  </span>
                 </div>
               )}
-              <div className="assist-controls">
-                <label>
-                  <span>Tone</span>
-                  <select value={tone} onChange={(event) => setTone(event.target.value)}>
-                    <option value="natural">Natural</option>
-                    <option value="concise">Concise</option>
-                    <option value="friendly">Friendly</option>
-                    <option value="professional">Professional</option>
-                  </select>
-                </label>
-                <button
-                  className="primary-button"
-                  disabled={!currentTask || !runtime.providerConfigured || cloudActive}
-                  onClick={() => void runTask()}
-                  type="button"
-                >
-                  {cloudActive ? (
-                    <LoaderCircle className="spin" size={16} />
-                  ) : (
-                    <Sparkles size={16} />
-                  )}
-                  {runtime.suggestion ?? 'Select context first'}
-                </button>
-              </div>
+
+              {runtime.suggestions.length > 0 && (
+                <div className="assist-controls">
+                  <label>
+                    <span>Response tone</span>
+                    <select value={tone} onChange={(event) => setTone(event.target.value)}>
+                      <option value="natural">Natural</option>
+                      <option value="concise">Concise</option>
+                      <option value="friendly">Friendly</option>
+                      <option value="professional">Professional</option>
+                    </select>
+                  </label>
+                  <div className="suggestion-actions">
+                    {runtime.suggestions.map((option) => (
+                      <button
+                        className={
+                          option === runtime.suggestions[0] ? 'primary-button' : 'secondary-button'
+                        }
+                        disabled={
+                          activeTask !== null || (!option.local && !runtime.providerConfigured)
+                        }
+                        key={option.task}
+                        onClick={() => void runTask(option)}
+                        title={option.reason}
+                        type="button"
+                      >
+                        {activeTask === option.task ? (
+                          <LoaderCircle className="spin" size={16} />
+                        ) : (
+                          <Sparkles size={16} />
+                        )}
+                        {option.label}
+                        {option.local && <small>Local</small>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {writing && (
+                <article className="result-item">
+                  <span className="result-meta">
+                    {writing.issues.length} issue{writing.issues.length === 1 ? '' : 's'} ·{' '}
+                    {writing.engine} · {writing.elapsedMs} ms
+                  </span>
+                  <p>{writing.corrected}</p>
+                  <button
+                    onClick={() => void copyOutput(writing.corrected, 0)}
+                    title="Copy correction"
+                    type="button"
+                  >
+                    {copied === 0 ? <Check size={15} /> : <Copy size={15} />}
+                    {copied === 0 ? 'Copied' : 'Copy'}
+                  </button>
+                </article>
+              )}
+
               {response?.outputs.map((output, index) => (
                 <article className="result-item" key={`${response.requestId}-${index}`}>
+                  <span className="result-meta">
+                    {response.provider} · {response.model}
+                  </span>
                   <p>{output}</p>
                   <button
                     onClick={() => void copyOutput(output, index)}
@@ -386,7 +503,7 @@ export function App() {
                 <div>
                   <dt>
                     <Globe2 size={17} />
-                    Chrome / x.com
+                    Chrome
                   </dt>
                   <dd>
                     <span
@@ -399,7 +516,7 @@ export function App() {
                 <div>
                   <dt>
                     <Code2 size={17} />
-                    VS Code
+                    VS Code / Cursor
                   </dt>
                   <dd>
                     <span
@@ -431,6 +548,13 @@ export function App() {
                   </dd>
                 </div>
               </dl>
+              <div className="privacy-note">
+                <ShieldCheck size={17} />
+                <span>
+                  Pairing is local. Codes expire after five minutes and are replaced after
+                  successful use.
+                </span>
+              </div>
             </div>
           )}
 
@@ -439,53 +563,90 @@ export function App() {
               <div className="context-heading">
                 <div>
                   <span className="eyebrow">Permission center</span>
-                  <h1>Deny by default</h1>
+                  <h1>Choose where POP helps</h1>
                 </div>
                 <ShieldCheck className="accent-icon" size={20} />
               </div>
               <div className="permission-list">
-                <label>
+                <label className="permission-master">
                   <span>
                     <strong>Monitoring</strong>
-                    <small>Accept authorized adapter events</small>
+                    <small>Accept meaningful events from allowed platforms</small>
                   </span>
                   <input
                     checked={runtime.permissions.monitoringEnabled}
-                    onChange={(event) =>
-                      void changePermission('monitoring_enabled', event.target.checked)
-                    }
+                    onChange={(event) => void changeMonitoring(event.target.checked)}
                     type="checkbox"
                   />
                 </label>
-                <label>
-                  <span>
-                    <strong>x.com</strong>
-                    <small>Drafts and selected posts only</small>
-                  </span>
-                  <input
-                    checked={runtime.permissions.xAllowed}
-                    onChange={(event) => void changePermission('x_allowed', event.target.checked)}
-                    type="checkbox"
-                  />
-                </label>
-                <label>
-                  <span>
-                    <strong>VS Code</strong>
-                    <small>Explicit selected code only</small>
-                  </span>
-                  <input
-                    checked={runtime.permissions.vscodeAllowed}
-                    onChange={(event) =>
-                      void changePermission('vscode_allowed', event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                </label>
+                {PLATFORMS.map((platform) => (
+                  <label key={platform.id}>
+                    <span>
+                      <strong>{platform.label}</strong>
+                      <small>{platform.scope}</small>
+                    </span>
+                    <input
+                      checked={runtime.permissions.platforms[platform.id] ?? false}
+                      onChange={(event) => void changePlatform(platform.id, event.target.checked)}
+                      type="checkbox"
+                    />
+                  </label>
+                ))}
               </div>
               <div className="privacy-note">
                 <ShieldCheck size={17} />
                 <span>
-                  POP previews and copies. It never posts to X, clicks buttons, or reuses approval.
+                  POP never reads passwords, posts, clicks, types, sends, or executes actions.
+                  Browser access must also be granted in the Chrome extension.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'memory' && (
+            <div className="tab-panel scroll-panel" role="tabpanel">
+              <div className="context-heading">
+                <div>
+                  <span className="eyebrow">Local personalization</span>
+                  <h1>What POP has learned</h1>
+                </div>
+                <Brain className="accent-icon" size={20} />
+              </div>
+              {habits.length === 0 ? (
+                <div className="empty-state">
+                  <Brain size={20} />
+                  <strong>No learned habits yet</strong>
+                  <span>
+                    Copy a few results and POP will learn aggregate tone and length preferences.
+                  </span>
+                </div>
+              ) : (
+                <div className="habit-list">
+                  {habits.map((habit) => (
+                    <article key={habit.id}>
+                      <span>
+                        <strong>{habit.label}</strong>
+                        <small>
+                          {habit.evidenceCount} signal{habit.evidenceCount === 1 ? '' : 's'} ·{' '}
+                          {Math.round(habit.confidence * 100)}% confidence
+                        </small>
+                      </span>
+                      <button
+                        onClick={() => void forgetLearnedHabit(habit.id).then(setHabits)}
+                        title="Forget this habit"
+                        type="button"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <div className="privacy-note">
+                <ShieldCheck size={17} />
+                <span>
+                  Only task, tone, coarse length, and counts are stored. Drafts, messages, generated
+                  answers, and code are never saved as memory.
                 </span>
               </div>
             </div>
@@ -497,8 +658,8 @@ export function App() {
             </div>
           )}
           <footer className="expanded-footer">
-            <span>Core protocol v1</span>
-            <strong>{cloudActive ? 'Cloud active' : 'Local idle'}</strong>
+            <span>Core protocol v2</span>
+            <strong>{cloudActive ? 'Cloud active' : 'Local first'}</strong>
           </footer>
         </section>
       )}

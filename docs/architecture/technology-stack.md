@@ -1,7 +1,9 @@
 # Technology Stack and Rationale
 
-This document explains what each planned technology does in POP, why it fits V0.1, and what boundary
-it must respect. A technology appearing here does not mean it is implemented in Phase 0.
+This document explains what each technology does in POP, why it fits, and what boundary it must
+respect. The current runtime uses Tauri, Rust, React, TypeScript, Vite, Zustand, SQLite, Harper,
+Manifest V3, the VS Code API, loopback WebSockets, Zod/Serde, and an optional Groq provider. Later
+architecture documents may name additional design-only technology; that does not make it executable.
 
 ## Design criteria
 
@@ -30,7 +32,7 @@ belong in window components.
 
 ## Rust: native POP Core
 
-**What it does:** Rust will implement Windows foreground-app detection, the localhost communication
+**What it does:** Rust implements Windows foreground-app detection, the localhost communication
 server, tray/native lifecycle, secure local persistence access, and enforcement close to the system
 boundary.
 
@@ -46,7 +48,7 @@ helpful but is never a trust guarantee.
 
 ## React: desktop interface
 
-**What it does:** React will render tiny, compact, and expanded modes; monitoring and permission
+**What it does:** React renders tiny, compact, and expanded modes; monitoring and permission
 controls; cloud-activity status; suggestions; responses; and the "What POP Can See" view.
 
 **Why POP uses it:** The UI has multiple explicit states and shared controls that map naturally to
@@ -58,7 +60,7 @@ of monitoring, application, domain, or context permissions.
 
 ## TypeScript: shared application language
 
-**What it does:** TypeScript will be used by the desktop UI, VS Code extension, Chrome extension, and
+**What it does:** TypeScript is used by the desktop UI, VS Code extension, Chrome extension, and
 shared packages for protocol, context, permissions, events, and provider-neutral AI types.
 
 **Why POP uses it:** Most of POP's non-native components run in JavaScript environments. Strict
@@ -70,7 +72,7 @@ boundary still needs runtime schema validation.
 
 ## Vite: frontend build system
 
-**What it does:** Vite will run the React development server and produce the desktop frontend bundle
+**What it does:** Vite runs the React development server and produces the desktop frontend bundle
 consumed by Tauri.
 
 **Why POP uses it:** It provides fast startup and refresh, a small configuration surface, and is the
@@ -100,7 +102,7 @@ projection, not the source of authority.
 
 ## SQLite: structured local persistence
 
-**What it does:** SQLite will store local settings, application/domain policies, provider preferences,
+**What it does:** SQLite stores local settings, application/domain policies, derived preferences,
 and privacy-safe request audit metadata.
 
 **Why POP plans to use it:** It is local, transactional, versionable with migrations, and requires no
@@ -110,6 +112,22 @@ more granular.
 **Tradeoff:** A simple configuration file would be adequate for only a few settings. SQLite is selected
 because permissions and audit records will soon need atomic updates and schema evolution. API keys
 must not be stored as plain SQLite values; Windows credential storage is the target for secrets.
+
+## Harper: offline writing checks
+
+**What it does:** Harper performs English spelling and grammar analysis inside the Rust process and
+returns bounded issues plus a corrected preview.
+
+**Why POP uses it:** Basic writing feedback should be fast, free, deterministic, and private. A local
+engine avoids sending every paused draft to a model and keeps POP useful when Groq is unavailable.
+Harper is Apache-2.0 licensed and its curated dictionary is cached in-process.
+
+**Tradeoff:** Harper adds a substantial one-time Rust compilation cost and does not replace a language
+model for tone, intent, or nuanced rewriting. POP warms it in the background at startup and uses Groq
+only when the user explicitly chooses a cloud task.
+
+**Boundary:** Harper receives only already-authorized temporary draft/search context. Its suggestions
+are previews, never automatic edits.
 
 ## pnpm workspaces: monorepo package management
 
@@ -132,7 +150,7 @@ different classes of mistakes. The root `pnpm check` command runs all four.
 
 ## VS Code Extension API
 
-**What it does:** A TypeScript extension will observe only the active editor, filename, language ID,
+**What it does:** A TypeScript extension observes only the active editor, filename, language ID,
 selection, range, and focus-related events allowed by V0.1.
 
 **Why POP uses it:** The official editor API provides structured context directly. This is more precise
@@ -144,7 +162,7 @@ credentials remain out of scope.
 
 ## Chrome Manifest V3 extension
 
-**What it does:** A TypeScript browser extension will observe selections and focused editable elements
+**What it does:** A TypeScript browser extension observes selections and focused editable elements
 on explicitly approved domains.
 
 **Why POP uses it:** Browser pages are isolated from desktop applications. A Manifest V3 extension is
@@ -156,7 +174,7 @@ untrusted client by POP Core, and V0.1 performs no posting or form submission.
 
 ## Localhost WebSocket
 
-**What it does:** A WebSocket server bound to `127.0.0.1` will carry versioned real-time messages among
+**What it does:** A WebSocket server bound to `127.0.0.1` carries versioned real-time messages among
 POP Core and the VS Code and Chrome adapters.
 
 **Why POP plans to use it:** Both extension environments support WebSocket clients, messages are
@@ -211,6 +229,6 @@ matches the first supported operating system and catches missing files or machin
 ## Explicitly excluded from V0.1
 
 POP does not use LangChain, agent loops, vector databases, screen recording, OCR, global keylogging,
-microphone/camera APIs, long-term memory, autonomous input control, remote telemetry, or a cloud
-database. None is necessary to prove the permission-gated event pipeline, and each would enlarge the
-privacy, security, and operational surface before the foundation is validated.
+microphone/camera APIs, raw-content memory, autonomous input control, remote telemetry, or a cloud
+database. None is necessary for the current permission-gated assistance loop, and each would enlarge
+the privacy, security, and operational surface before its own gate is validated.

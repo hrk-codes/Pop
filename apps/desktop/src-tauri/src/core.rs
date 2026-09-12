@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::{
     foreground::foreground_application_id,
-    protocol::{AdapterSource, ContextKind, ContextObservation},
+    protocol::{AdapterSource, ContextKind, ContextObservation, PlatformId},
     security::contains_likely_secret,
     storage::Store,
 };
@@ -35,8 +35,33 @@ fn new_session_token() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct PermissionSettings {
     pub monitoring_enabled: bool,
-    pub x_allowed: bool,
-    pub vscode_allowed: bool,
+    pub platforms: HashMap<PlatformId, bool>,
+}
+
+impl PermissionSettings {
+    pub fn denied() -> Self {
+        Self {
+            monitoring_enabled: false,
+            platforms: PlatformId::ALL
+                .into_iter()
+                .map(|platform| (platform, false))
+                .collect(),
+        }
+    }
+
+    pub fn allows(&self, platform: PlatformId) -> bool {
+        self.platforms.get(&platform).copied().unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionOption {
+    pub task: &'static str,
+    pub label: &'static str,
+    pub confidence: f32,
+    pub reason: &'static str,
+    pub local: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +81,7 @@ pub struct RuntimeSnapshot {
     pub connected_adapters: Vec<AdapterSource>,
     pub current_context: Option<ActiveContext>,
     pub suggestion: Option<String>,
+    pub suggestions: Vec<SuggestionOption>,
     pub provider_configured: bool,
 }
 
@@ -72,6 +98,97 @@ pub struct PopCore {
     state: Arc<RwLock<RuntimeState>>,
     store: Arc<Mutex<Store>>,
     provider_configured: bool,
+}
+
+fn expected_application(platform: PlatformId) -> &'static str {
+    match platform {
+        PlatformId::Vscode => "vscode",
+        PlatformId::Cursor => "cursor",
+        _ => "chrome",
+    }
+}
+
+fn valid_source_platform(source: AdapterSource, platform: PlatformId) -> bool {
+    match source {
+        AdapterSource::Chrome => !matches!(platform, PlatformId::Vscode | PlatformId::Cursor),
+        AdapterSource::Vscode => matches!(platform, PlatformId::Vscode | PlatformId::Cursor),
+    }
+}
+
+pub fn suggestions_for(kind: ContextKind) -> Vec<SuggestionOption> {
+    match kind {
+        ContextKind::DraftText | ContextKind::SearchQuery => vec![
+            SuggestionOption {
+                task: "CHECK_WRITING",
+                label: "Check writing",
+                confidence: 0.98,
+                reason: "Paused in a writing field",
+                local: true,
+            },
+            SuggestionOption {
+                task: "IMPROVE_WRITING",
+                label: "Improve writing",
+                confidence: 0.92,
+                reason: "Draft is ready for review",
+                local: false,
+            },
+        ],
+        ContextKind::SocialPost | ContextKind::Conversation => vec![
+            SuggestionOption {
+                task: "DRAFT_REPLY",
+                label: "Draft replies",
+                confidence: 0.91,
+                reason: "Conversation text selected",
+                local: false,
+            },
+            SuggestionOption {
+                task: "SUMMARIZE",
+                label: "Summarize",
+                confidence: 0.8,
+                reason: "Reading context selected",
+                local: false,
+            },
+            SuggestionOption {
+                task: "EXPLAIN_TEXT",
+                label: "Explain",
+                confidence: 0.75,
+                reason: "Reading context selected",
+                local: false,
+            },
+        ],
+        ContextKind::ArticleText | ContextKind::SelectedText => vec![
+            SuggestionOption {
+                task: "EXPLAIN_TEXT",
+                label: "Explain",
+                confidence: 0.86,
+                reason: "Text selection stabilized",
+                local: false,
+            },
+            SuggestionOption {
+                task: "SUMMARIZE",
+                label: "Summarize",
+                confidence: 0.81,
+                reason: "Reading context selected",
+                local: false,
+            },
+        ],
+        ContextKind::SelectedCode => vec![
+            SuggestionOption {
+                task: "EXPLAIN_CODE",
+                label: "Explain code",
+                confidence: 0.96,
+                reason: "Code selection stabilized",
+                local: false,
+            },
+            SuggestionOption {
+                task: "REVIEW_CODE",
+                label: "Review code",
+                confidence: 0.88,
+                reason: "Code selection stabilized",
+                local: false,
+            },
+        ],
+    }
 }
 
 impl PopCore {
@@ -107,11 +224,9 @@ impl PopCore {
             }
             return Err("INVALID_SESSION_TOKEN");
         }
-
         if pairing_code != Some(state.pairing_code.as_str()) {
             return Err("INVALID_PAIRING_CODE");
         }
-
         let token = new_session_token();
         state.sessions.insert(token.clone(), source);
         state.connected_adapters.insert(source);
@@ -133,11 +248,18 @@ impl PopCore {
         if contains_likely_secret(&observation.text) {
             return Err("SENSITIVE_CONTEXT_BLOCKED");
         }
-
+        if !valid_source_platform(source, observation.platform_id) {
+            return Err("SOURCE_PLATFORM_MISMATCH");
+        }
+        let expected_app = expected_application(observation.platform_id);
+        if observation.application_id != expected_app {
+            return Err("SOURCE_APPLICATION_MISMATCH");
+        }
         let foreground = foreground_application_id().ok_or("FOREGROUND_APP_UNKNOWN")?;
-        let expected_foreground = match source {
-            AdapterSource::Chrome => "chrome",
-            AdapterSource::Vscode => "code",
+        let expected_foreground = match observation.platform_id {
+            PlatformId::Vscode => "code",
+            PlatformId::Cursor => "cursor",
+            _ => "chrome",
         };
         if foreground != expected_foreground {
             return Err("SOURCE_NOT_FOREGROUND");
@@ -147,31 +269,19 @@ impl PopCore {
         if !state.permissions.monitoring_enabled {
             return Err("MONITORING_DISABLED");
         }
-        match source {
-            AdapterSource::Chrome => {
-                if !state.permissions.x_allowed {
-                    return Err("APPLICATION_OR_DOMAIN_DENIED");
-                }
-                if observation.application_id != "chrome"
-                    || observation.domain.as_deref() != Some("x.com")
-                    || !matches!(
-                        observation.kind,
-                        ContextKind::SelectedText | ContextKind::XPost | ContextKind::XDraft
-                    )
-                {
-                    return Err("SOURCE_CONTEXT_MISMATCH");
-                }
-            }
-            AdapterSource::Vscode => {
-                if !state.permissions.vscode_allowed {
-                    return Err("APPLICATION_DENIED");
-                }
-                if observation.application_id != "vscode"
-                    || observation.kind != ContextKind::SelectedCode
-                {
-                    return Err("SOURCE_CONTEXT_MISMATCH");
-                }
-            }
+        if !state.permissions.allows(observation.platform_id) {
+            return Err("PLATFORM_DENIED");
+        }
+        if let Some(expected_domain) = observation.platform_id.expected_domain()
+            && observation.domain.as_deref() != Some(expected_domain)
+        {
+            return Err("DOMAIN_MISMATCH");
+        }
+        if source == AdapterSource::Chrome && observation.kind == ContextKind::SelectedCode {
+            return Err("CONTEXT_KIND_DENIED");
+        }
+        if source == AdapterSource::Vscode && observation.kind != ContextKind::SelectedCode {
+            return Err("CONTEXT_KIND_DENIED");
         }
 
         let accepted_at = now_ms();
@@ -196,48 +306,39 @@ impl PopCore {
         Ok(context)
     }
 
-    pub fn set_permission(&self, key: &str, value: bool) -> Result<(), String> {
-        {
-            let store = self
-                .store
-                .lock()
-                .map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
-            store.set_bool(key, value, now_ms())?;
-        }
+    pub fn set_monitoring(&self, value: bool) -> Result<(), String> {
+        self.store
+            .lock()
+            .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+            .set_bool("monitoring_enabled", value, now_ms())?;
         let mut state = self
             .state
             .write()
             .map_err(|_| "CORE_STATE_UNAVAILABLE".to_owned())?;
-        match key {
-            "monitoring_enabled" => {
-                state.permissions.monitoring_enabled = value;
-                if !value {
-                    state.current_context = None;
-                }
-            }
-            "x_allowed" => {
-                state.permissions.x_allowed = value;
-                if !value
-                    && state
-                        .current_context
-                        .as_ref()
-                        .is_some_and(|context| context.source == AdapterSource::Chrome)
-                {
-                    state.current_context = None;
-                }
-            }
-            "vscode_allowed" => {
-                state.permissions.vscode_allowed = value;
-                if !value
-                    && state
-                        .current_context
-                        .as_ref()
-                        .is_some_and(|context| context.source == AdapterSource::Vscode)
-                {
-                    state.current_context = None;
-                }
-            }
-            _ => return Err("UNKNOWN_SETTING".to_owned()),
+        state.permissions.monitoring_enabled = value;
+        if !value {
+            state.current_context = None;
+        }
+        Ok(())
+    }
+
+    pub fn set_platform_permission(&self, platform: PlatformId, value: bool) -> Result<(), String> {
+        self.store
+            .lock()
+            .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+            .set_bool(platform.setting_key(), value, now_ms())?;
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| "CORE_STATE_UNAVAILABLE".to_owned())?;
+        state.permissions.platforms.insert(platform, value);
+        if !value
+            && state
+                .current_context
+                .as_ref()
+                .is_some_and(|context| context.observation.platform_id == platform)
+        {
+            state.current_context = None;
         }
         Ok(())
     }
@@ -265,23 +366,39 @@ impl PopCore {
             AdapterSource::Chrome => 0,
             AdapterSource::Vscode => 1,
         });
-        let suggestion =
-            state
-                .current_context
-                .as_ref()
-                .map(|context| match context.observation.kind {
-                    ContextKind::XDraft => "Improve writing".to_owned(),
-                    ContextKind::XPost => "Draft replies".to_owned(),
-                    ContextKind::SelectedCode => "Explain code".to_owned(),
-                    ContextKind::SelectedText => "Explain text".to_owned(),
-                });
+        let suggestions = state
+            .current_context
+            .as_ref()
+            .map_or_else(Vec::new, |context| {
+                suggestions_for(context.observation.kind)
+            });
         RuntimeSnapshot {
             pairing_code: state.pairing_code.clone(),
             permissions: state.permissions.clone(),
             connected_adapters,
             current_context: state.current_context.clone(),
-            suggestion,
+            suggestion: suggestions.first().map(|item| item.label.to_owned()),
+            suggestions,
             provider_configured: self.provider_configured,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ContextKind, suggestions_for};
+
+    #[test]
+    fn writing_has_local_first_suggestion() {
+        let suggestions = suggestions_for(ContextKind::DraftText);
+        assert_eq!(suggestions[0].task, "CHECK_WRITING");
+        assert!(suggestions[0].local);
+    }
+
+    #[test]
+    fn conversation_offers_bounded_choices() {
+        let suggestions = suggestions_for(ContextKind::Conversation);
+        assert_eq!(suggestions.len(), 3);
+        assert_eq!(suggestions[0].task, "DRAFT_REPLY");
     }
 }

@@ -8,14 +8,20 @@
   </head>
   <body>
     <main>
-      <h1>POP</h1>
-      <p id="status">Checking local connection...</p>
+      <header>
+        <strong>POP <small id="version"></small></strong>
+        <span id="status">Checking local connection...</span>
+      </header>
       <form id="pair-form">
         <label for="pairing-code">Pairing code</label>
         <input id="pairing-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required />
-        <button type="submit">Connect</button>
+        <button type="submit">Pair</button>
       </form>
-      <small>Only approved x.com selections and unsent drafts are observed.</small>
+      <section id="platform-section" hidden>
+        <h1>Allowed sites</h1>
+        <div id="platform-list"></div>
+      </section>
+      <small>POP observes meaningful text events only on sites you enable.</small>
     </main>
     <script src="popup.js"></script>
   </body>

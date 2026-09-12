@@ -1,7 +1,7 @@
 import type { ContextState } from '@pop/context';
 
 export type AssistanceIntent =
-  'EXPLAIN_CODE' | 'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_X_REPLY';
+  'EXPLAIN_CODE' | 'REVIEW_CODE' | 'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_REPLY' | 'SUMMARIZE';
 
 export interface IntentCandidate {
   intent: AssistanceIntent;
@@ -17,25 +17,42 @@ export interface SuggestionCandidate extends IntentCandidate {
 export function generateIntentCandidates(context: ContextState): readonly IntentCandidate[] {
   switch (context.observation.kind) {
     case 'SELECTED_CODE':
-      return [{ intent: 'EXPLAIN_CODE', confidence: 0.95, reasons: ['CODE_SELECTION'] }];
+      return [
+        { intent: 'EXPLAIN_CODE', confidence: 0.95, reasons: ['CODE_SELECTION'] },
+        { intent: 'REVIEW_CODE', confidence: 0.86, reasons: ['CODE_SELECTION'] },
+      ];
     case 'SELECTED_TEXT':
-      return [{ intent: 'EXPLAIN_TEXT', confidence: 0.85, reasons: ['TEXT_SELECTION'] }];
-    case 'X_DRAFT':
-      return [{ intent: 'IMPROVE_WRITING', confidence: 0.95, reasons: ['ACTIVE_X_DRAFT'] }];
-    case 'X_POST':
-      return [{ intent: 'DRAFT_X_REPLY', confidence: 0.9, reasons: ['VISIBLE_X_POST'] }];
+    case 'ARTICLE_TEXT':
+      return [
+        { intent: 'EXPLAIN_TEXT', confidence: 0.85, reasons: ['TEXT_SELECTION'] },
+        { intent: 'SUMMARIZE', confidence: 0.8, reasons: ['READING_CONTEXT'] },
+      ];
+    case 'DRAFT_TEXT':
+    case 'SEARCH_QUERY':
+      return [{ intent: 'IMPROVE_WRITING', confidence: 0.95, reasons: ['ACTIVE_DRAFT'] }];
+    case 'SOCIAL_POST':
+    case 'CONVERSATION':
+      return [
+        { intent: 'DRAFT_REPLY', confidence: 0.9, reasons: ['REPLY_CONTEXT'] },
+        { intent: 'SUMMARIZE', confidence: 0.78, reasons: ['READING_CONTEXT'] },
+        { intent: 'EXPLAIN_TEXT', confidence: 0.74, reasons: ['READING_CONTEXT'] },
+      ];
   }
 }
 
 const LABELS: Readonly<Record<AssistanceIntent, string>> = {
   EXPLAIN_CODE: 'Explain code',
+  REVIEW_CODE: 'Review code',
   EXPLAIN_TEXT: 'Explain text',
   IMPROVE_WRITING: 'Improve writing',
-  DRAFT_X_REPLY: 'Draft replies',
+  DRAFT_REPLY: 'Draft replies',
+  SUMMARIZE: 'Summarize',
 };
 
 export function choosePrimarySuggestion(context: ContextState): SuggestionCandidate | null {
-  const [candidate] = generateIntentCandidates(context);
+  const [candidate] = [...generateIntentCandidates(context)].sort(
+    (a, b) => b.confidence - a.confidence,
+  );
   if (!candidate || candidate.confidence < 0.7) return null;
 
   return {

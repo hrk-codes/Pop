@@ -1,106 +1,106 @@
 # Current Build Verification
 
-This guide tests the repository POP actually contains today. The runnable product is the V0.1 Phase 1
-desktop shell. V0.2-V0.5 documents describe gated architecture and should not appear as working
-features in the application.
+This guide tests the executable POP runtime as it exists now. It deliberately separates implemented
+assistance from future visual, action, tool, and voice plans.
 
-## 1. Open the repository
+## 1. Verify and start POP
 
-In Cursor, choose **File > Open Folder** and select:
-
-```text
-C:\Users\hrkgh\Agent learn\PoP
-```
-
-Open a PowerShell terminal in Cursor and confirm the location:
+Open `C:\Users\hrkgh\Agent learn\PoP` in VS Code or Cursor, then run:
 
 ```powershell
-cd 'C:\Users\hrkgh\Agent learn\PoP'
-git status --short --branch
-```
-
-Expected: branch `main`. Review any listed files before continuing; do not discard changes you intend
-to keep.
-
-## 2. Install and validate
-
-On this development machine the Windows toolchain is already installed. For a clean checkout, run:
-
-```powershell
+Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup.ps1
 pnpm check
-```
-
-`pnpm check` must pass Prettier, ESLint, strict TypeScript, four unit tests, the frontend production
-build, Rust formatting, and `cargo check`.
-
-## 3. Start working mode
-
-```powershell
 .\scripts\dev.ps1
 ```
 
-The first native build can take several minutes. Keep the terminal open. Success includes:
+Keep this terminal open. The first Rust build after a clean checkout is slow because Harper's local
+language engine compiles once; later starts use Cargo's cache.
 
-```text
-VITE ready
-Running target\debug\pop-desktop.exe
+## 2. Configure Groq
+
+Local grammar correction does not need a key. Cloud rewrites, replies, explanations, reviews, and
+summaries read `GROQ_API_KEY` from the ignored repository-root `.env` file:
+
+```dotenv
+GROQ_API_KEY=gsk_your_key_here
 ```
 
-Press `Ctrl+C` in that terminal to stop development mode.
+Never commit `.env`. In POP, open **Connect** and select **Test** beside Groq. POP reports reachability
+without displaying the key.
 
-## 4. Verify the desktop shell
+## 3. Pair Chrome
 
-Perform these checks in order:
+Build the extension with `pnpm --filter @pop/chrome-extension build`. Open
+`chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select
+`apps\chrome-extension\dist`.
 
-| Check         | Action                            | Expected result                                  |
-| ------------- | --------------------------------- | ------------------------------------------------ |
-| Launch        | Start development mode            | A window titled `POP` appears                    |
-| Compact mode  | Observe the initial surface       | Stable compact companion, no loading shift       |
-| Expand        | Use the expand control            | Expanded panel opens at its fixed dimensions     |
-| Collapse      | Use the compact control           | Companion returns to compact mode                |
-| Tiny mode     | Use the smallest mode control     | Small always-on-top companion remains usable     |
-| Drag          | Drag from the window drag surface | Frameless window moves normally                  |
-| Overview      | Open the Overview tab             | Working and design-only boundaries are explicit  |
-| Privacy panel | Open the Privacy tab              | It reports no app, screen, or cloud access       |
-| Close         | Click the window close control    | Window hides; process remains in the system tray |
-| Restore       | Left-click the POP tray icon      | Window becomes visible and focused               |
-| Tray commands | Test Show, Hide, and Quit         | Each command performs only the named operation   |
+1. In POP, open **Connect** and note the current six-digit code.
+2. Open the POP Chrome extension, enter the code, and select **Pair** within five minutes.
+3. Enable only the sites on which POP may help. Chrome displays its own permission confirmation.
+4. In POP, enable **Monitoring**. The allowed site should also appear enabled under **Platforms**.
+5. Reload an already-open allowed tab after changing its permission.
 
-## 5. Verify privacy boundaries
+The pairing code changing after successful pairing is intentional: each code can be used once. The
+extension stores the returned session token and reconnects with it.
 
-While testing the current shell, the following must remain true:
+If pairing reports a protocol or validation error, return to `chrome://extensions` and click the
+extension's reload icon. Open its popup and confirm it shows `v0.2.1` or newer, then use the pairing
+code currently visible in POP. An older cached service worker cannot communicate with protocol v2.
 
-- POP does not read VS Code, Chrome, windows, the clipboard, screenshots, or files.
-- POP does not send a Groq request; `GROQ_API_KEY` is not consumed by runtime code yet.
-- Restarting POP resets the companion mode.
-- There is no SQLite database, memory center, remembered preference, action proposal, or executor.
-- Closing to the tray does not start background monitoring; no monitoring adapter exists.
+## 4. Test browser writing
 
-## 6. What each version currently means
+On an enabled site, focus a normal text field, type at least three characters, and pause for about one
+second. Password, payment, and security-labelled fields are blocked.
 
-| Version | Intended capability        | Runnable today | Honest verification                               |
-| ------- | -------------------------- | -------------- | ------------------------------------------------- |
-| V0.1    | Sense and assist           | Phase 1 only   | Window, modes, tray, local UI state               |
-| V0.2    | Context intelligence       | No             | Read design and blocked completion gate           |
-| V0.3    | Visual intelligence        | No             | Read design; verify no capture implementation     |
-| V0.4    | Safe computer actions      | No             | Read completion gate; verify no action executors  |
-| V0.5    | Memory and personalization | No             | Read Phase 82 design; verify no persistent memory |
+Expected behavior:
 
-## 7. Production executable
+- A small red POP cue appears beside the field.
+- POP shows the platform, temporary draft, and **Check writing** plus **Improve writing** options.
+- **Check writing** returns an offline Harper correction and latency without using Groq.
+- **Improve writing** sends only the accepted temporary text to Groq after your click.
+- **Copy** places the preview on the clipboard; POP never inserts or posts it.
 
-After the quality gate passes, build and launch the release executable:
+Select page text on X, YouTube, WhatsApp Web, ChatGPT, or Claude to test reply, summary, and explanation
+options. Selection availability depends on the site's rendered DOM; POP does not bypass protected UI.
 
-```powershell
-.\scripts\build.ps1
-Start-Process '.\apps\desktop\src-tauri\target\release\pop-desktop.exe'
-```
+## 5. Pair VS Code or Cursor
 
-The production shell should match the development behavior without the Vite terminal. Quit it from the
-POP tray menu when testing is complete.
+Build with `pnpm --filter @pop/vscode-extension build`. For development, open
+`apps\vscode-extension` as an Extension Development Host or package/install the extension through the
+editor's standard extension workflow.
 
-## Acceptance rule
+Run **POP: Pair with Desktop** from the Command Palette and enter POP's current pairing code. Enable
+the matching **VS Code** or **Cursor** platform in POP. Select multiple lines and hold the selection for
+about one second. POP should offer **Explain code** and **Review code**. Both are explicit Groq calls;
+no file is changed.
 
-POP is working as currently implemented when every shell check passes and every unavailable feature
-remains truthfully unavailable. To make POP work as the full V0.1-V0.5 vision, development must resume
-at V0.1 Phase 2 rather than skipping directly to memory persistence.
+## 6. Verify personalization
+
+Copy several generated or corrected results. Open **Memory** in POP. It shows only aggregate tone and
+coarse response-length preferences with evidence counts. Delete any row with its trash button.
+
+Verify that the database does not expose draft, message, answer, or code content as a learned habit.
+Turning monitoring off immediately clears active context.
+
+## Runtime matrix
+
+| Product area         | Status               | Executable behavior                                                         |
+| -------------------- | -------------------- | --------------------------------------------------------------------------- |
+| Desktop companion    | Implemented          | Always-on-top modes, drag, tray hide/restore                                |
+| Permissions          | Implemented          | Monitoring and eight deny-by-default platform switches                      |
+| Browser context      | Implemented baseline | Optional sites, drafts, selections, sensitive-field blocks                  |
+| Code context         | Implemented baseline | Stable VS Code/Cursor selections                                            |
+| Local writing        | Implemented          | Offline Harper spelling and grammar suggestions                             |
+| Cloud assistance     | Implemented          | Explicit Groq rewrite, reply, explain, review, summarize                    |
+| Context intelligence | Partial              | Deterministic candidates, confidence, expiry; deeper behavior model remains |
+| Memory               | Partial              | Derived copy preferences only; no semantic long-term memory                 |
+| Visual intelligence  | Not implemented      | No screenshots, OCR, recording, or ambient capture                          |
+| Safe actions         | Not implemented      | Preview and copy only; no computer control                                  |
+| MCP/tools/workflows  | Not implemented      | Architecture contracts only                                                 |
+| Voice                | Not implemented      | Future opt-in feature                                                       |
+
+## Stop POP
+
+Press `Ctrl+C` in the development terminal, then use the POP tray menu's **Quit POP** command if the
+window process remains active. Run `.\scripts\cleanup.ps1` before restarting after an interrupted run.

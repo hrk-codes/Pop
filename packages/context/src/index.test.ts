@@ -10,7 +10,8 @@ describe('context state', () => {
         source: 'CHROME',
         receivedAt: 1_000,
         observation: {
-          kind: 'X_DRAFT',
+          kind: 'DRAFT_TEXT',
+          platformId: 'X',
           text: 'Today I built POP.',
           applicationId: 'chrome',
           domain: 'x.com',

@@ -352,6 +352,10 @@ button {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.segmented-control--four {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .tab-panel {
   min-height: 0;
   flex: 1;
@@ -496,7 +500,7 @@ button {
 .assist-controls {
   display: grid;
   margin-top: 12px;
-  grid-template-columns: 115px minmax(0, 1fr);
+  grid-template-columns: 105px minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -524,11 +528,17 @@ button {
   font-size: 10px;
 }
 
-.primary-button {
+.suggestion-actions {
+  display: grid;
+  align-content: end;
+  gap: 6px;
+}
+
+.primary-button,
+.secondary-button {
   display: flex;
   min-width: 0;
   height: 34px;
-  margin-top: 16px;
   padding: 0 11px;
   align-items: center;
   justify-content: center;
@@ -542,7 +552,22 @@ button {
   gap: 6px;
 }
 
-.primary-button:disabled {
+.secondary-button {
+  border: 1px solid #d9d8d2;
+  background: #ffffff;
+  color: #3d3f3a;
+}
+
+.primary-button small,
+.secondary-button small {
+  color: inherit;
+  font-size: 8px;
+  font-weight: 700;
+  opacity: 0.72;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
   background: #d5d3cc;
   color: #777a72;
   cursor: default;
@@ -556,6 +581,12 @@ button {
   border-radius: 7px;
   background: #ffffff;
   gap: 10px;
+}
+
+.result-meta {
+  color: #777a72;
+  font-size: 9px;
+  font-weight: 650;
 }
 
 .result-item button,
@@ -619,6 +650,11 @@ button {
   gap: 16px;
 }
 
+.permission-list .permission-master {
+  border-bottom-color: #badfd2;
+  background: #f1f8f5;
+}
+
 .permission-list label > span {
   display: grid;
   gap: 3px;
@@ -637,6 +673,49 @@ button {
   width: 34px;
   height: 18px;
   accent-color: #24986f;
+}
+
+.habit-list {
+  display: grid;
+  margin-top: 15px;
+}
+
+.habit-list article {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e7e5df;
+  gap: 12px;
+}
+
+.habit-list article > span {
+  display: grid;
+  gap: 4px;
+}
+
+.habit-list strong {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.habit-list small {
+  color: #777a72;
+  font-size: 9px;
+}
+
+.habit-list button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #d9d8d2;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #777a72;
+  cursor: pointer;
 }
 
 .privacy-note,
