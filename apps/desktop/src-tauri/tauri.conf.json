@@ -10,23 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "POP",
-        "width": 438,
-        "height": 720,
-        "minWidth": 112,
-        "minHeight": 112,
-        "alwaysOnTop": true,
-        "center": true,
-        "decorations": false,
-        "resizable": false,
-        "shadow": true,
-        "skipTaskbar": true,
-        "transparent": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
     }

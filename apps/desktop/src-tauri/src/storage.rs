@@ -70,6 +70,15 @@ impl Store {
         Ok(self.optional_bool_setting(key)?.unwrap_or(false))
     }
 
+    pub fn text_setting(&self, key: &str) -> Result<Option<String>, String> {
+        self.connection
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|error| error.to_string())
+    }
+
     pub fn load_permissions(&self) -> Result<PermissionSettings, String> {
         let mut settings = PermissionSettings::denied();
         settings.monitoring_enabled = self.bool_setting("monitoring_enabled")?;
@@ -92,11 +101,15 @@ impl Store {
     }
 
     pub fn set_bool(&self, key: &str, value: bool, now: u64) -> Result<(), String> {
+        self.set_text(key, &value.to_string(), now)
+    }
+
+    pub fn set_text(&self, key: &str, value: &str, now: u64) -> Result<(), String> {
         self.connection
             .execute(
                 "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-                params![key, value.to_string(), now as i64],
+                params![key, value, now as i64],
             )
             .map_err(|error| error.to_string())?;
         Ok(())

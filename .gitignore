@@ -8,6 +8,7 @@ node_modules/
 .artifacts/
 .pnpm-store/
 dist/
+.wxt/
 coverage/
 *.tsbuildinfo
 

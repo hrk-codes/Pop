@@ -1,31 +1,37 @@
 # Architecture Overview
 
-POP V0.1 is five cooperating systems with strict ownership boundaries.
+POP's current executable is an X-first live desktop companion with one authority path.
 
 ```text
-VS Code adapter ----\
-                     > versioned localhost protocol -> POP Core -> AI provider
-Chrome adapter -----/                              |          |
-                                                   |          +-> minimized HTTPS payload
-                                                   +-> local state
-                                                          |
-                                                    Tauri/React UI
+X selection or draft
+  -> WXT content script
+  -> MV3 service worker
+  -> Chrome Native Messaging
+  -> Rust native host
+  -> authenticated named pipe
+  -> Rust POP Core
+       |-> permission, target, secret, size, and TTL checks
+       |-> local Harper grammar
+       |-> explicit streaming Groq request
+       |-> SQLite metadata and Windows credentials
+  -> avatar, menu, and speech Tauri windows
 ```
 
-## Runtime boundaries
+## Ownership
 
-- **Desktop UI:** Presents status, controls, suggestions, responses, and transparent privacy details.
-- **POP Core:** Owns monitoring state, permissions, foreground-app awareness, validation, context
-  filtering, event rules, AI routing, storage, rate limits, and safe logging.
-- **VS Code adapter:** Collects only approved structured editor context after meaningful events.
-- **Chrome adapter:** Collects only approved structured page context on allowed domains.
-- **AI provider layer:** Translates minimized provider-independent tasks to hosted API calls.
+- **Avatar surface:** visualizes operational state and exposes contextual actions.
+- **Speech surface:** streams, copies, navigates, collapses, and closes temporary results.
+- **Menu surface:** changes monitoring, X, AI, personality, privacy, and window preferences.
+- **POP Core:** makes every security decision and owns accepted temporary context.
+- **X adapter:** observes bounded semantic snapshots only while Core says both switches are enabled.
+- **Native host:** authenticates Chrome to Core without exposing a localhost web server or user code.
+- **Provider layer:** turns explicit normalized tasks into local or remote previews.
 
-Applications depend on focused packages; packages do not depend on application UI. Security decisions
-must remain usable without React, VS Code, Chrome, or a particular AI provider.
+React is never an authority. Browser text and model output are never instructions. Disabling monitoring
+clears current context; changing X route or selection invalidates it; raw content is never durable.
 
-## Phase ownership
+## Current boundary
 
-Phase 0 creates boundaries and tooling only. Desktop execution begins in Phase 1, persistence in Phase
-2, foreground awareness in Phase 3, and local communication in Phase 4. Integrations and AI are added
-only after the layers they depend on have tests.
+The runnable release is avatar + X context + local grammar + explicit Groq preview/copy. The editor
+adapter and V0.3-V0.6 visual, action, memory, tool, and workflow designs remain deferred until this
+interaction passes manual reliability and privacy gates.

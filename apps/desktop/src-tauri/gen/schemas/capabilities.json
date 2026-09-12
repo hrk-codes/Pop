@@ -1,14 +1,1 @@
-{
-  "default": {
-    "identifier": "default",
-    "description": "Minimum permissions for the POP companion window.",
-    "local": true,
-    "windows": ["main"],
-    "permissions": [
-      "core:default",
-      "core:window:allow-hide",
-      "core:window:allow-set-size",
-      "core:window:allow-start-dragging"
-    ]
-  }
-}
+{"default":{"identifier":"default","description":"Minimum permissions for the POP companion window.","local":true,"windows":["avatar","speech","menu"],"permissions":["core:default","core:window:allow-hide","core:window:allow-show","core:window:allow-set-focus","core:window:allow-set-position","core:window:allow-set-size","core:window:allow-start-dragging"]}}

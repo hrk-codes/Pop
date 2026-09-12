@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u8 = 2;
+pub const PROTOCOL_VERSION: u8 = 3;
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
-pub const MAX_CONTEXT_CHARS: usize = 12_000;
+pub const MAX_CONTEXT_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -89,20 +89,6 @@ pub struct ContextObservation {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RegisterPayload {
-    pub pairing_code: Option<String>,
-    pub session_token: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlatformPermissionPayload {
-    pub platform_id: PlatformId,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UiCommand {
     Show,
@@ -116,9 +102,7 @@ pub struct UiCommandPayload {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EnvelopePayload {
-    Register(RegisterPayload),
     Context(ContextObservation),
-    PlatformPermission(PlatformPermissionPayload),
     UiCommand(UiCommandPayload),
     #[allow(dead_code)]
     Heartbeat(serde_json::Value),
@@ -151,28 +135,28 @@ impl ProtocolEnvelope {
                 return Err("INVALID_CONTEXT_SIZE");
             }
         }
-        if let EnvelopePayload::PlatformPermission(permission) = &self.message
-            && matches!(
-                permission.platform_id,
-                PlatformId::Vscode | PlatformId::Cursor
-            )
-        {
-            return Err("INVALID_PLATFORM_PERMISSION_SOURCE");
-        }
         Ok(())
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(
     tag = "type",
     rename_all = "SCREAMING_SNAKE_CASE",
     rename_all_fields = "camelCase"
 )]
 pub enum ServerMessage {
-    Registered { session_token: String },
-    Ack { message_id: String },
-    Error { code: String, message: String },
+    Control {
+        monitoring_enabled: bool,
+        x_enabled: bool,
+    },
+    Ack {
+        message_id: String,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 #[cfg(test)]
@@ -180,29 +164,37 @@ mod tests {
     use super::{EnvelopePayload, ProtocolEnvelope, ServerMessage};
 
     #[test]
-    fn deserializes_chrome_registration_envelope() {
+    fn deserializes_chrome_context_envelope() {
         let envelope: ProtocolEnvelope = serde_json::from_value(serde_json::json!({
-            "version": 2,
+            "version": 3,
             "id": "d9428888-122b-11e1-b85c-61cd3cbb3210",
             "source": "CHROME",
-            "type": "REGISTER",
+            "type": "CONTEXT",
             "timestamp": 1_725_000_000_000_u64,
-            "payload": { "pairingCode": "269261" }
+            "payload": {
+                "kind": "SOCIAL_POST",
+                "platformId": "X",
+                "text": "A selected post",
+                "applicationId": "chrome",
+                "domain": "x.com",
+                "observedAt": 1_725_000_000_000_u64
+            }
         }))
-        .expect("Chrome registration should deserialize");
+        .expect("Chrome context should deserialize");
 
-        assert!(matches!(envelope.message, EnvelopePayload::Register(_)));
+        assert!(matches!(envelope.message, EnvelopePayload::Context(_)));
         assert!(envelope.validate().is_ok());
     }
 
     #[test]
     fn serializes_server_fields_as_camel_case() {
-        let registered = serde_json::to_value(ServerMessage::Registered {
-            session_token: "session".to_owned(),
+        let control = serde_json::to_value(ServerMessage::Control {
+            monitoring_enabled: true,
+            x_enabled: true,
         })
-        .expect("registered response serializes");
-        assert_eq!(registered["sessionToken"], "session");
-        assert!(registered.get("session_token").is_none());
+        .expect("control response serializes");
+        assert_eq!(control["monitoringEnabled"], true);
+        assert!(control.get("monitoring_enabled").is_none());
 
         let ack = serde_json::to_value(ServerMessage::Ack {
             message_id: "message".to_owned(),

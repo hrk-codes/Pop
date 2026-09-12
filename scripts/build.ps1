@@ -12,7 +12,8 @@ if (Test-Path -LiteralPath $cargoBin) {
 Push-Location $projectRoot
 try {
     pnpm build
-    pnpm --filter @pop/desktop tauri build --no-bundle
+    cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --release --bin pop-native-host
+    pnpm --filter @pop/desktop tauri build
 }
 finally {
     Pop-Location

@@ -58,6 +58,7 @@ if ($existingOwners.Count -gt 0) {
 
 Push-Location $projectRoot
 try {
+    & (Join-Path $projectRoot 'scripts\register-native-host.ps1') -Configuration Debug
     pnpm --filter @pop/desktop tauri:dev
 }
 finally {

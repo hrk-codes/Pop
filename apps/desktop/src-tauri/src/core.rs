@@ -4,9 +4,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rand::Rng;
 use serde::Serialize;
-use uuid::Uuid;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     foreground::foreground_application_id,
@@ -15,20 +14,12 @@ use crate::{
     storage::Store,
 };
 
-const CONTEXT_TTL_MS: u64 = 120_000;
+const CONTEXT_TTL_MS: u64 = 90_000;
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
-}
-
-fn new_pairing_code() -> String {
-    format!("{:06}", rand::rng().random_range(0..1_000_000_u32))
-}
-
-fn new_session_token() -> String {
-    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,16 +47,6 @@ impl PermissionSettings {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SuggestionOption {
-    pub task: &'static str,
-    pub label: &'static str,
-    pub confidence: f32,
-    pub reason: &'static str,
-    pub local: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ActiveContext {
     pub source: AdapterSource,
     pub observation: ContextObservation,
@@ -76,19 +57,14 @@ pub struct ActiveContext {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeSnapshot {
-    pub pairing_code: String,
     pub permissions: PermissionSettings,
     pub connected_adapters: Vec<AdapterSource>,
     pub current_context: Option<ActiveContext>,
-    pub suggestion: Option<String>,
-    pub suggestions: Vec<SuggestionOption>,
     pub provider_configured: bool,
 }
 
 struct RuntimeState {
-    pairing_code: String,
     permissions: PermissionSettings,
-    sessions: HashMap<String, AdapterSource>,
     connected_adapters: HashSet<AdapterSource>,
     current_context: Option<ActiveContext>,
 }
@@ -98,6 +74,7 @@ pub struct PopCore {
     state: Arc<RwLock<RuntimeState>>,
     store: Arc<Mutex<Store>>,
     provider_configured: bool,
+    generation: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 fn expected_application(platform: PlatformId) -> &'static str {
@@ -115,94 +92,17 @@ fn valid_source_platform(source: AdapterSource, platform: PlatformId) -> bool {
     }
 }
 
-pub fn suggestions_for(kind: ContextKind) -> Vec<SuggestionOption> {
-    match kind {
-        ContextKind::DraftText | ContextKind::SearchQuery => vec![
-            SuggestionOption {
-                task: "CHECK_WRITING",
-                label: "Check writing",
-                confidence: 0.98,
-                reason: "Paused in a writing field",
-                local: true,
-            },
-            SuggestionOption {
-                task: "IMPROVE_WRITING",
-                label: "Improve writing",
-                confidence: 0.92,
-                reason: "Draft is ready for review",
-                local: false,
-            },
-        ],
-        ContextKind::SocialPost | ContextKind::Conversation => vec![
-            SuggestionOption {
-                task: "DRAFT_REPLY",
-                label: "Draft replies",
-                confidence: 0.91,
-                reason: "Conversation text selected",
-                local: false,
-            },
-            SuggestionOption {
-                task: "SUMMARIZE",
-                label: "Summarize",
-                confidence: 0.8,
-                reason: "Reading context selected",
-                local: false,
-            },
-            SuggestionOption {
-                task: "EXPLAIN_TEXT",
-                label: "Explain",
-                confidence: 0.75,
-                reason: "Reading context selected",
-                local: false,
-            },
-        ],
-        ContextKind::ArticleText | ContextKind::SelectedText => vec![
-            SuggestionOption {
-                task: "EXPLAIN_TEXT",
-                label: "Explain",
-                confidence: 0.86,
-                reason: "Text selection stabilized",
-                local: false,
-            },
-            SuggestionOption {
-                task: "SUMMARIZE",
-                label: "Summarize",
-                confidence: 0.81,
-                reason: "Reading context selected",
-                local: false,
-            },
-        ],
-        ContextKind::SelectedCode => vec![
-            SuggestionOption {
-                task: "EXPLAIN_CODE",
-                label: "Explain code",
-                confidence: 0.96,
-                reason: "Code selection stabilized",
-                local: false,
-            },
-            SuggestionOption {
-                task: "REVIEW_CODE",
-                label: "Review code",
-                confidence: 0.88,
-                reason: "Code selection stabilized",
-                local: false,
-            },
-        ],
-    }
-}
-
 impl PopCore {
     pub fn new(store: Store, permissions: PermissionSettings, provider_configured: bool) -> Self {
         Self {
             state: Arc::new(RwLock::new(RuntimeState {
-                pairing_code: new_pairing_code(),
                 permissions,
-                sessions: HashMap::new(),
                 connected_adapters: HashSet::new(),
                 current_context: None,
             })),
             store: Arc::new(Mutex::new(store)),
             provider_configured,
+            generation: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -210,28 +110,28 @@ impl PopCore {
         Arc::clone(&self.store)
     }
 
-    pub fn register(
-        &self,
-        source: AdapterSource,
-        pairing_code: Option<&str>,
-        session_token: Option<&str>,
-    ) -> Result<String, &'static str> {
-        let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
-        if let Some(token) = session_token {
-            if state.sessions.get(token) == Some(&source) {
-                state.connected_adapters.insert(source);
-                return Ok(token.to_owned());
+    pub fn begin_generation(&self) -> CancellationToken {
+        let token = CancellationToken::new();
+        if let Ok(mut active) = self.generation.lock() {
+            if let Some(previous) = active.replace(token.clone()) {
+                previous.cancel();
             }
-            return Err("INVALID_SESSION_TOKEN");
         }
-        if pairing_code != Some(state.pairing_code.as_str()) {
-            return Err("INVALID_PAIRING_CODE");
+        token
+    }
+
+    fn cancel_generation(&self) {
+        if let Ok(mut active) = self.generation.lock()
+            && let Some(token) = active.take()
+        {
+            token.cancel();
         }
-        let token = new_session_token();
-        state.sessions.insert(token.clone(), source);
+    }
+
+    pub fn mark_connected(&self, source: AdapterSource) -> Result<(), &'static str> {
+        let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
         state.connected_adapters.insert(source);
-        state.pairing_code = new_pairing_code();
-        Ok(token)
+        Ok(())
     }
 
     pub fn mark_disconnected(&self, source: AdapterSource) {
@@ -265,6 +165,7 @@ impl PopCore {
             return Err("SOURCE_NOT_FOREGROUND");
         }
 
+        self.cancel_generation();
         let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
         if !state.permissions.monitoring_enabled {
             return Err("MONITORING_DISABLED");
@@ -318,6 +219,7 @@ impl PopCore {
         state.permissions.monitoring_enabled = value;
         if !value {
             state.current_context = None;
+            self.cancel_generation();
         }
         Ok(())
     }
@@ -339,17 +241,9 @@ impl PopCore {
                 .is_some_and(|context| context.observation.platform_id == platform)
         {
             state.current_context = None;
+            self.cancel_generation();
         }
         Ok(())
-    }
-
-    pub fn regenerate_pairing_code(&self) -> Result<String, String> {
-        let mut state = self
-            .state
-            .write()
-            .map_err(|_| "CORE_STATE_UNAVAILABLE".to_owned())?;
-        state.pairing_code = new_pairing_code();
-        Ok(state.pairing_code.clone())
     }
 
     pub fn snapshot(&self) -> RuntimeSnapshot {
@@ -366,39 +260,11 @@ impl PopCore {
             AdapterSource::Chrome => 0,
             AdapterSource::Vscode => 1,
         });
-        let suggestions = state
-            .current_context
-            .as_ref()
-            .map_or_else(Vec::new, |context| {
-                suggestions_for(context.observation.kind)
-            });
         RuntimeSnapshot {
-            pairing_code: state.pairing_code.clone(),
             permissions: state.permissions.clone(),
             connected_adapters,
             current_context: state.current_context.clone(),
-            suggestion: suggestions.first().map(|item| item.label.to_owned()),
-            suggestions,
             provider_configured: self.provider_configured,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ContextKind, suggestions_for};
-
-    #[test]
-    fn writing_has_local_first_suggestion() {
-        let suggestions = suggestions_for(ContextKind::DraftText);
-        assert_eq!(suggestions[0].task, "CHECK_WRITING");
-        assert!(suggestions[0].local);
-    }
-
-    #[test]
-    fn conversation_offers_bounded_choices() {
-        let suggestions = suggestions_for(ContextKind::Conversation);
-        assert_eq!(suggestions.len(), 3);
-        assert_eq!(suggestions[0].task, "DRAFT_REPLY");
     }
 }

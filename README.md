@@ -1,54 +1,66 @@
 # POP
 
-POP is a Windows-first, permission-scoped desktop companion. It stays available as a draggable Tauri
-window and tray app, accepts short-lived structured context from explicitly paired Chrome and code
-editor adapters, and offers local or user-invoked cloud assistance. POP suggests and copies; it does
-not click, type, post, send, delete, or execute computer actions.
+POP is a Windows-first, privacy-scoped desktop companion. The current live redesign focuses on one
+workflow: understand an authorized selection or unsent draft on X, offer a clear action, generate a
+preview, and let the user copy it. POP never posts, clicks, types into X, or sends a reply itself.
 
-## What runs today
+## What runs now
 
-- Tauri 2 + Rust core with a React companion in tiny, compact, and expanded modes.
-- Deny-by-default monitoring and per-platform controls for X, Google, YouTube, WhatsApp Web, ChatGPT,
-  Claude, VS Code, and Cursor.
-- Authenticated versioned loopback adapters with expiring one-time pairing codes.
-- Chrome Manifest V3 optional site permissions, password-field blocking, stable draft detection,
-  selected-page context, and an inline POP cue.
-- Automatic stable code selection from the VS Code/Cursor extension.
-- Offline English spelling and grammar correction through Harper.
-- Explicit Groq assistance for rewriting, reply drafts, explanations, reviews, and summaries.
-- Temporary context with foreground-target checks, secret detection, size bounds, and expiry.
-- Local aggregate preference learning from copied result tone and length, with visible deletion.
+- A draggable, always-on-top animated POP character with `56`, `76`, and `104` pixel sizes.
+- Operational expressions for resting, attentive, thinking, speaking, success, and blocked states.
+- Contextual Explain, Reply, Grammar, Improve, Shorten, Summarize, Previous, Next, and More controls.
+- A compact double-click settings menu instead of a large dashboard.
+- A separate attached response bubble with streaming, copy, variants, collapse, and close controls.
+- An X-only WXT/Chrome MV3 adapter with sensitive-field blocking and short-lived context.
+- Chrome Native Messaging through a Windows-secured Rust host; there are no pairing codes.
+- Offline grammar correction through Harper and explicit cloud assistance through Groq.
+- SQLite preferences and AI audit metadata without raw drafts, selections, or generated responses.
 
-Visual capture, voice, arbitrary tools, browser automation, posting, and computer control are not
-implemented. The V0.3-V0.6 architecture documents remain design boundaries, not shipped authority.
+VS Code, Cursor, additional websites, voice, visual capture, tools, and computer actions are deferred
+until the X workflow is reliable. The editor package intentionally reports that status instead of
+pretending to be connected.
 
-## Repository map
+## Architecture
 
 ```text
-apps/desktop/            Tauri/Rust core and React companion
-apps/chrome-extension/   Permission-scoped browser adapter
-apps/vscode-extension/   VS Code and Cursor selection adapter
-packages/                Shared protocol, policy, context, event, AI, and security contracts
-docs/                    Architecture, product decisions, and test guides
-scripts/                 Windows setup, development, build, and cleanup helpers
+X DOM selection or draft
+  -> WXT content script
+  -> Chrome service worker
+  -> Chrome Native Messaging
+  -> pop-native-host.exe
+  -> authenticated Windows named pipe
+  -> Rust POP Core
+  -> local intent/privacy policy
+  -> animated React/Tauri surfaces
+  -> explicit Harper or Groq request
+  -> preview and copy only
 ```
 
-## Quick start
+Rust owns permissions, context acceptance, expiry, credentials, provider access, and persistence.
+React projects trusted state and handles visual choreography. Browser text and model output are always
+untrusted data and cannot change permissions or gain action authority.
+
+## Start development
 
 ```powershell
 cd 'C:\Users\hrkgh\Agent learn\PoP'
+Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup.ps1
 pnpm check
 .\scripts\dev.ps1
 ```
 
-Then follow the [current build verification guide](docs/development/current-build-verification.md) to
-pair the adapters and test each implemented workflow. See
-[the technology stack](docs/architecture/technology-stack.md) for the engineering rationale and
-[the product roadmap](docs/product/roadmap.md) for the staged direction.
+`dev.ps1` builds the X adapter, registers the native host for the current Windows user, clears stale
+development processes, and starts Tauri. Chrome still requires one browser-controlled installation:
 
-## Security boundary
+1. Open `chrome://extensions` and enable Developer mode.
+2. Remove the old POP extension if it is installed.
+3. Choose **Load unpacked** and select `apps\chrome-extension\dist\chrome-mv3`.
+4. Confirm the extension ID is `fpkepfajehdejjbccjaecmbmdepkaddf`.
+5. Reload X once, then enable Monitoring and X assistance from POP's double-click menu.
 
-React is a projection of trusted state. Rust owns permission decisions, context acceptance, local
-persistence, provider access, and secret screening. Adapters are untrusted inputs. Webpage text and AI
-output can inform a preview but cannot change permissions or gain action authority.
+The Groq key belongs in the ignored root `.env` as `GROQ_API_KEY=...`. On first successful desktop
+startup POP migrates it to Windows Credential Manager. Do not commit `.env`.
+
+See [current build verification](docs/development/current-build-verification.md) for the complete
+manual test and [technology stack](docs/architecture/technology-stack.md) for engineering rationale.

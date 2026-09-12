@@ -5,14 +5,16 @@
   "description": "Permission-scoped Chrome Manifest V3 context adapter.",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
-    "typecheck": "tsc --project tsconfig.json"
+    "build": "wxt build",
+    "dev": "wxt",
+    "postinstall": "wxt prepare",
+    "typecheck": "wxt prepare && tsc --project tsconfig.json"
   },
   "dependencies": {
     "@pop/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "0.1.38",
-    "esbuild": "0.27.4"
+    "wxt": "0.20.13"
   }
 }

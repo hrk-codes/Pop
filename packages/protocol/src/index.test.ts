@@ -34,7 +34,7 @@ describe('protocol envelope', () => {
         payload: {
           kind: 'DRAFT_TEXT',
           platformId: 'X',
-          text: 'x'.repeat(12_001),
+          text: 'x'.repeat(8_001),
           applicationId: 'chrome',
           domain: 'x.com',
           observedAt: 1,
@@ -43,16 +43,16 @@ describe('protocol envelope', () => {
     ).toThrow();
   });
 
-  it('accepts a Chrome platform permission decision', () => {
+  it('accepts a heartbeat without pairing credentials', () => {
     const envelope = parseProtocolEnvelope({
       version: PROTOCOL_VERSION,
       id: crypto.randomUUID(),
       source: 'CHROME',
-      type: 'PLATFORM_PERMISSION',
+      type: 'HEARTBEAT',
       timestamp: 1,
-      payload: { platformId: 'YOUTUBE', enabled: true },
+      payload: {},
     });
 
-    expect(envelope.type).toBe('PLATFORM_PERMISSION');
+    expect(envelope.type).toBe('HEARTBEAT');
   });
 });

@@ -1,10 +1,9 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 2 as const;
+export const PROTOCOL_VERSION = 3 as const;
 
 export const adapterSourceSchema = z.enum(['CHROME', 'VSCODE']);
 export type AdapterSource = z.infer<typeof adapterSourceSchema>;
-
 export const platformIdSchema = z.enum([
   'X',
   'GOOGLE',
@@ -16,7 +15,6 @@ export const platformIdSchema = z.enum([
   'CURSOR',
 ]);
 export type PlatformId = z.infer<typeof platformIdSchema>;
-
 export const contextKindSchema = z.enum([
   'DRAFT_TEXT',
   'SOCIAL_POST',
@@ -31,7 +29,7 @@ export type ContextKind = z.infer<typeof contextKindSchema>;
 export const contextObservationSchema = z.object({
   kind: contextKindSchema,
   platformId: platformIdSchema,
-  text: z.string().trim().min(1).max(12_000),
+  text: z.string().trim().min(1).max(8_000),
   applicationId: z.string().trim().min(1).max(80),
   domain: z.string().trim().max(253).optional(),
   title: z.string().trim().max(300).optional(),
@@ -41,52 +39,21 @@ export const contextObservationSchema = z.object({
 });
 export type ContextObservation = z.infer<typeof contextObservationSchema>;
 
-export const registerPayloadSchema = z
-  .object({
-    pairingCode: z
-      .string()
-      .regex(/^\d{6}$/)
-      .optional(),
-    sessionToken: z.string().min(32).max(256).optional(),
-  })
-  .refine((value) => Boolean(value.pairingCode) !== Boolean(value.sessionToken), {
-    message: 'Provide exactly one pairing credential.',
-  });
-
 export const protocolEnvelopeSchema = z.discriminatedUnion('type', [
   z.object({
     version: z.literal(PROTOCOL_VERSION),
     id: z.string().uuid(),
     source: adapterSourceSchema,
-    type: z.literal('REGISTER'),
-    timestamp: z.number().int().nonnegative(),
-    payload: registerPayloadSchema,
-  }),
-  z.object({
-    version: z.literal(PROTOCOL_VERSION),
-    id: z.string().uuid(),
-    source: adapterSourceSchema,
     type: z.literal('CONTEXT'),
-    timestamp: z.number().int().nonnegative(),
+    timestamp: z.number().int().positive(),
     payload: contextObservationSchema,
-  }),
-  z.object({
-    version: z.literal(PROTOCOL_VERSION),
-    id: z.string().uuid(),
-    source: z.literal('CHROME'),
-    type: z.literal('PLATFORM_PERMISSION'),
-    timestamp: z.number().int().nonnegative(),
-    payload: z.object({
-      platformId: platformIdSchema.exclude(['VSCODE', 'CURSOR']),
-      enabled: z.boolean(),
-    }),
   }),
   z.object({
     version: z.literal(PROTOCOL_VERSION),
     id: z.string().uuid(),
     source: adapterSourceSchema,
     type: z.literal('UI_COMMAND'),
-    timestamp: z.number().int().nonnegative(),
+    timestamp: z.number().int().positive(),
     payload: z.object({ command: z.literal('SHOW') }),
   }),
   z.object({
@@ -94,7 +61,7 @@ export const protocolEnvelopeSchema = z.discriminatedUnion('type', [
     id: z.string().uuid(),
     source: adapterSourceSchema,
     type: z.literal('HEARTBEAT'),
-    timestamp: z.number().int().nonnegative(),
+    timestamp: z.number().int().positive(),
     payload: z.object({}),
   }),
 ]);

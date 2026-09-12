@@ -1,11 +1,18 @@
 # Roadmap
 
-## V0.1: core platform
+## Current convergence: live POP on X
+
+The earlier V0.1-V0.6 architecture work exposed a product-direction problem: a large control panel and
+manual pairing did not feel like an ambient companion. The active build converges the verified core
+pieces into a living avatar, native browser connection, contextual actions, streaming speech bubble,
+and X-only privacy boundary. Reliability here is the gate for every later platform.
+
+## Archived V0.1: core platform
 
 Build the permission-gated event pipeline, desktop companion, VS Code and Chrome adapters, and explicit
 AI assistance one verified phase at a time.
 
-## V0.2: focused browser experience
+## Archived V0.2: focused browser experience
 
 Improve domain-aware browser context, X-specific assistance, reply drafting, and restrained proactive
 suggestions without autonomous submission.

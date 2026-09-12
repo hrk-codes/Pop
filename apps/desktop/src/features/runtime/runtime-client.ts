@@ -1,20 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-export type AdapterSource = 'CHROME' | 'VSCODE';
-export type PlatformId =
-  'X' | 'GOOGLE' | 'YOUTUBE' | 'WHATSAPP' | 'CHATGPT' | 'CLAUDE' | 'VSCODE' | 'CURSOR';
-export type ContextKind =
-  | 'DRAFT_TEXT'
-  | 'SOCIAL_POST'
-  | 'SEARCH_QUERY'
-  | 'CONVERSATION'
-  | 'ARTICLE_TEXT'
-  | 'SELECTED_TEXT'
-  | 'SELECTED_CODE';
+export type AdapterSource = 'CHROME';
+export type PlatformId = 'X';
+export type ContextKind = 'DRAFT_TEXT' | 'SOCIAL_POST' | 'ARTICLE_TEXT' | 'SELECTED_TEXT';
 export type AssistanceTask =
-  'EXPLAIN_CODE' | 'REVIEW_CODE' | 'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_REPLY' | 'SUMMARIZE';
-export type SuggestionTask = AssistanceTask | 'CHECK_WRITING';
+  'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_REPLY' | 'SUMMARIZE' | 'SHORTEN';
 
 export interface ContextObservation {
   kind: ContextKind;
@@ -23,8 +14,7 @@ export interface ContextObservation {
   applicationId: string;
   domain?: string;
   title?: string;
-  language?: string;
-  capturedAt: number;
+  observedAt: number;
 }
 
 export interface ActiveContext {
@@ -34,24 +24,10 @@ export interface ActiveContext {
   expiresAt: number;
 }
 
-export interface SuggestionOption {
-  task: SuggestionTask;
-  label: string;
-  confidence: number;
-  reason: string;
-  local: boolean;
-}
-
 export interface RuntimeSnapshot {
-  pairingCode: string;
-  permissions: {
-    monitoringEnabled: boolean;
-    platforms: Record<PlatformId, boolean>;
-  };
+  permissions: { monitoringEnabled: boolean; platforms: Record<PlatformId, boolean> };
   connectedAdapters: AdapterSource[];
   currentContext: ActiveContext | null;
-  suggestions: SuggestionOption[];
-  suggestion: string | null;
   providerConfigured: boolean;
 }
 
@@ -63,17 +39,25 @@ export interface AssistanceResponse {
   createdAt: number;
 }
 
-export interface WritingIssue {
-  message: string;
-  start: number;
-  end: number;
-  replacement?: string;
+export interface AssistanceStarted {
+  requestId: string;
+  task: string;
+  provider: string;
+  model: string;
+}
+
+export interface AssistanceChunk {
+  requestId: string;
+  delta: string;
+}
+export interface AssistanceComplete extends AssistanceStarted {
+  output: string;
 }
 
 export interface WritingAnalysis {
   original: string;
   corrected: string;
-  issues: WritingIssue[];
+  issues: Array<{ message: string; start: number; end: number; replacement?: string }>;
   elapsedMs: number;
   engine: string;
 }
@@ -82,75 +66,83 @@ export interface ProviderHealth {
   configured: boolean;
   reachable: boolean;
 }
-
-export interface LearnedHabit {
-  id: string;
-  label: string;
-  evidenceCount: number;
-  confidence: number;
-  updatedAt: number;
+export interface CompanionPreferences {
+  avatarSize: 56 | 76 | 104;
 }
 
 export function isTauriRuntime(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
 
-export async function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
-  return invoke<RuntimeSnapshot>('get_runtime_snapshot');
+export function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
+  if (!isTauriRuntime())
+    return Promise.resolve({
+      permissions: { monitoringEnabled: false, platforms: { X: false } },
+      connectedAdapters: [],
+      currentContext: null,
+      providerConfigured: false,
+    });
+  return invoke('get_runtime_snapshot');
 }
 
-export async function updateMonitoring(value: boolean): Promise<RuntimeSnapshot> {
-  return invoke<RuntimeSnapshot>('set_monitoring', { value });
+export function getCompanionPreferences(): Promise<CompanionPreferences> {
+  if (!isTauriRuntime()) return Promise.resolve({ avatarSize: 76 });
+  return invoke('get_companion_preferences');
 }
 
-export async function updatePlatformPermission(
+export function saveAvatarSize(value: number): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke('set_avatar_size', { value });
+}
+
+export function updateMonitoring(value: boolean): Promise<RuntimeSnapshot> {
+  return invoke('set_monitoring', { value });
+}
+
+export function updatePlatformPermission(
   platformId: PlatformId,
   value: boolean,
 ): Promise<RuntimeSnapshot> {
-  return invoke<RuntimeSnapshot>('set_platform_permission', { platformId, value });
+  return invoke('set_platform_permission', { platformId, value });
 }
 
-export async function refreshPairingCode(): Promise<string> {
-  return invoke<string>('regenerate_pairing_code');
+export function checkProvider(): Promise<ProviderHealth> {
+  return invoke('provider_health');
 }
 
-export async function checkProvider(): Promise<ProviderHealth> {
-  return invoke<ProviderHealth>('provider_health');
+export function checkWriting(): Promise<WritingAnalysis> {
+  return invoke('check_writing');
 }
 
-export async function checkWriting(): Promise<WritingAnalysis> {
-  return invoke<WritingAnalysis>('check_writing');
+export function requestAssistance(task: AssistanceTask, tone: string): Promise<AssistanceResponse> {
+  return invoke('run_assistance', { task, tone });
 }
 
-export async function getLearnedHabits(): Promise<LearnedHabit[]> {
-  return invoke<LearnedHabit[]>('get_learned_habits');
-}
-
-export async function recordCopyPreference(
-  task: string,
-  tone: string,
-  outputChars: number,
-): Promise<LearnedHabit[]> {
-  return invoke<LearnedHabit[]>('record_copy_preference', { task, tone, outputChars });
-}
-
-export async function forgetLearnedHabit(id: string): Promise<LearnedHabit[]> {
-  return invoke<LearnedHabit[]>('forget_habit', { id });
-}
-
-export async function requestAssistance(
-  task: AssistanceTask,
-  tone: string,
-): Promise<AssistanceResponse> {
-  return invoke<AssistanceResponse>('run_assistance', { task, tone });
-}
-
-export async function onRuntimeUpdate(
-  handler: (snapshot: RuntimeSnapshot) => void,
-): Promise<UnlistenFn> {
+export function onRuntimeUpdate(handler: (snapshot: RuntimeSnapshot) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
   return listen<RuntimeSnapshot>('pop://runtime-updated', (event) => handler(event.payload));
 }
 
-export async function onCloudActivity(handler: (active: boolean) => void): Promise<UnlistenFn> {
+export function onCloudActivity(handler: (active: boolean) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
   return listen<boolean>('pop://cloud-activity', (event) => handler(event.payload));
+}
+
+export function onAssistanceStarted(
+  handler: (value: AssistanceStarted) => void,
+): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
+  return listen<AssistanceStarted>('pop://assistance-started', (event) => handler(event.payload));
+}
+
+export function onAssistanceChunk(handler: (value: AssistanceChunk) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
+  return listen<AssistanceChunk>('pop://assistance-chunk', (event) => handler(event.payload));
+}
+
+export function onAssistanceComplete(
+  handler: (value: AssistanceComplete) => void,
+): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
+  return listen<AssistanceComplete>('pop://assistance-complete', (event) => handler(event.payload));
 }

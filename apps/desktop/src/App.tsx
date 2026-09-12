@@ -1,668 +1,560 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMachine } from '@xstate/react';
+import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  Bot,
   Check,
   ChevronRight,
-  Clipboard,
   Cloud,
-  Code2,
   Copy,
-  Brain,
-  Globe2,
-  GripHorizontal,
-  LoaderCircle,
-  Maximize2,
-  Minimize2,
+  Eye,
+  EyeOff,
+  Gauge,
+  Minus,
+  MessageCircle,
+  Monitor,
+  MoreHorizontal,
+  Palette,
   RefreshCw,
+  Settings,
   ShieldCheck,
   Sparkles,
-  Trash2,
   X,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import popMark from './assets/pop-mark-ui.png';
-import { getNextExpandedMode } from './features/companion/companion-state';
-import { useCompanionStore } from './features/companion/store';
-import { hideCompanion, resizeCompanion, startWindowDrag } from './features/companion/window';
+import { PopAvatar } from './features/companion/PopAvatar';
+import { companionMachine, type ExpressionState } from './features/companion/machine';
+import {
+  hideCurrentSurface,
+  hideSurface,
+  resizeAvatarSurface,
+  showSurface,
+  startWindowDrag,
+  toggleMenu,
+} from './features/companion/window';
 import {
   checkProvider,
   checkWriting,
-  forgetLearnedHabit,
-  getLearnedHabits,
+  getCompanionPreferences,
   getRuntimeSnapshot,
   isTauriRuntime,
+  onAssistanceChunk,
+  onAssistanceComplete,
+  onAssistanceStarted,
   onCloudActivity,
   onRuntimeUpdate,
-  refreshPairingCode,
-  recordCopyPreference,
   requestAssistance,
+  saveAvatarSize,
   updateMonitoring,
   updatePlatformPermission,
-  type AssistanceResponse,
+  type AssistanceTask,
   type ContextKind,
-  type LearnedHabit,
-  type PlatformId,
   type RuntimeSnapshot,
-  type SuggestionOption,
-  type WritingAnalysis,
 } from './features/runtime/runtime-client';
 
-type ExpandedTab = 'assist' | 'connect' | 'privacy' | 'memory';
-type HealthState = 'idle' | 'checking' | 'ready' | 'failed';
+type AvatarSize = 56 | 76 | 104;
+type Direction = 'up' | 'down' | 'left' | 'right';
+type ActionItem = { label: string; task?: AssistanceTask | 'CHECK_WRITING'; icon: ReactNode };
+type ResultPayload = {
+  requestId: string;
+  output: string;
+  task: string;
+  provider: string;
+  model: string;
+};
 
-const PLATFORMS: Array<{
-  id: PlatformId;
-  label: string;
-  scope: string;
-  adapter: 'browser' | 'editor';
-}> = [
-  { id: 'X', label: 'X', scope: 'Drafts and selected posts', adapter: 'browser' },
-  {
-    id: 'GOOGLE',
-    label: 'Google',
-    scope: 'Search queries and selected results',
-    adapter: 'browser',
-  },
-  { id: 'YOUTUBE', label: 'YouTube', scope: 'Comments and selected text', adapter: 'browser' },
-  {
-    id: 'WHATSAPP',
-    label: 'WhatsApp Web',
-    scope: 'Drafts and selected messages',
-    adapter: 'browser',
-  },
-  { id: 'CHATGPT', label: 'ChatGPT', scope: 'Drafts and selected responses', adapter: 'browser' },
-  { id: 'CLAUDE', label: 'Claude', scope: 'Drafts and selected responses', adapter: 'browser' },
-  { id: 'VSCODE', label: 'VS Code', scope: 'Stable code selections', adapter: 'editor' },
-  { id: 'CURSOR', label: 'Cursor', scope: 'Stable code selections', adapter: 'editor' },
-];
-
-const EMPTY_PLATFORMS = Object.fromEntries(PLATFORMS.map(({ id }) => [id, false])) as Record<
-  PlatformId,
-  boolean
->;
+function appListen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
+  if (!isTauriRuntime()) return Promise.resolve(() => undefined);
+  return listen<T>(event, (message) => handler(message.payload));
+}
 
 const EMPTY_RUNTIME: RuntimeSnapshot = {
-  pairingCode: '------',
-  permissions: { monitoringEnabled: false, platforms: EMPTY_PLATFORMS },
+  permissions: { monitoringEnabled: false, platforms: { X: false } },
   connectedAdapters: [],
   currentContext: null,
-  suggestions: [],
-  suggestion: null,
   providerConfigured: false,
 };
 
 function errorText(error: unknown): string {
   return typeof error === 'string'
-    ? error.replaceAll('_', ' ')
+    ? error.replaceAll('_', ' ').toLowerCase()
     : 'POP could not complete that request.';
 }
 
-function contextLabel(kind?: ContextKind): string {
-  const labels: Partial<Record<ContextKind, string>> = {
-    DRAFT_TEXT: 'Writing draft',
-    SOCIAL_POST: 'Selected post',
-    SEARCH_QUERY: 'Search query',
-    CONVERSATION: 'Conversation',
-    ARTICLE_TEXT: 'Page selection',
-    SELECTED_TEXT: 'Selected text',
-    SELECTED_CODE: 'Selected code',
+function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
+  if (kind === 'DRAFT_TEXT') {
+    return {
+      up: { label: 'Grammar', task: 'CHECK_WRITING', icon: <Check size={14} /> },
+      down: { label: 'Improve', task: 'IMPROVE_WRITING', icon: <Sparkles size={14} /> },
+      right: { label: 'Shorten', task: 'SHORTEN', icon: <Minus size={14} /> },
+      left: { label: 'More', icon: <MoreHorizontal size={14} /> },
+    };
+  }
+  return {
+    up: { label: 'Explain', task: 'EXPLAIN_TEXT', icon: <Bot size={14} /> },
+    down: { label: 'Reply', task: 'DRAFT_REPLY', icon: <MessageCircle size={14} /> },
+    right: { label: 'Summarize', task: 'SUMMARIZE', icon: <Gauge size={14} /> },
+    left: { label: 'More', icon: <MoreHorizontal size={14} /> },
   };
-  return kind ? (labels[kind] ?? 'Current context') : 'No context yet';
 }
 
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-}
+function AvatarSurface() {
+  const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
+  const [size, setSize] = useState<AvatarSize>(76);
+  const [state, send] = useMachine(companionMachine);
+  const [resultReady, setResultReady] = useState(false);
+  const [lastTask, setLastTask] = useState<AssistanceTask | 'CHECK_WRITING' | null>(null);
+  const actions = useMemo(
+    () => actionsFor(runtime.currentContext?.observation.kind),
+    [runtime.currentContext?.observation.kind],
+  );
+  const contextReady = Boolean(runtime.currentContext && runtime.permissions.monitoringEnabled);
 
-export function App() {
-  const mode = useCompanionStore((state) => state.mode);
-  const setMode = useCompanionStore((state) => state.setMode);
-  const [activeTab, setActiveTab] = useState<ExpandedTab>('assist');
-  const [runtime, setRuntime] = useState<RuntimeSnapshot>(EMPTY_RUNTIME);
-  const [loading, setLoading] = useState(true);
-  const [cloudActive, setCloudActive] = useState(false);
-  const [health, setHealth] = useState<HealthState>('idle');
-  const [tone, setTone] = useState('natural');
-  const [response, setResponse] = useState<AssistanceResponse | null>(null);
-  const [writing, setWriting] = useState<WritingAnalysis | null>(null);
-  const [activeTask, setActiveTask] = useState<string | null>(null);
-  const [resultTask, setResultTask] = useState<string | null>(null);
-  const [habits, setHabits] = useState<LearnedHabit[]>([]);
-  const [copied, setCopied] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const contextPreview = useMemo(() => {
-    const text = runtime.currentContext?.observation.text ?? '';
-    return text.length > 360 ? `${text.slice(0, 360)}...` : text;
-  }, [runtime.currentContext]);
+  const runTask = useCallback(
+    async (task: AssistanceTask | 'CHECK_WRITING') => {
+      setLastTask(task);
+      setResultReady(false);
+      send({ type: 'REQUEST' });
+      await showSurface('speech');
+      try {
+        if (task === 'CHECK_WRITING') {
+          const result = await checkWriting();
+          await emit<ResultPayload>('pop://assistance-complete', {
+            requestId: crypto.randomUUID(),
+            output: result.corrected,
+            task,
+            provider: 'local',
+            model: result.engine,
+          });
+        } else {
+          await requestAssistance(task, 'natural');
+        }
+      } catch (error) {
+        send({ type: 'FAIL' });
+        await emit('pop://assistance-failed', errorText(error));
+      }
+    },
+    [send],
+  );
 
   useEffect(() => {
-    void resizeCompanion(mode);
-  }, [mode]);
-
-  useEffect(() => {
-    if (!isTauriRuntime()) {
-      setLoading(false);
-      setError('Open POP through the Tauri desktop runtime.');
-      return;
-    }
-
-    let disposed = false;
-    const cleanup: Array<() => void> = [];
-    void getRuntimeSnapshot()
-      .then((snapshot) => {
-        if (!disposed) setRuntime(snapshot);
-      })
-      .catch((nextError: unknown) => {
-        if (!disposed) setError(errorText(nextError));
-      })
-      .finally(() => {
-        if (!disposed) setLoading(false);
-      });
-    void getLearnedHabits().then((items) => {
-      if (!disposed) setHabits(items);
-    });
+    if (!isTauriRuntime()) return;
+    const cleanups: Array<() => void> = [];
+    void getRuntimeSnapshot().then(setRuntime);
+    void getCompanionPreferences().then((preferences) => setSize(preferences.avatarSize));
     void onRuntimeUpdate((snapshot) => {
       setRuntime(snapshot);
-      setResponse(null);
-      setWriting(null);
-    }).then((unlisten) => cleanup.push(unlisten));
-    void onCloudActivity(setCloudActive).then((unlisten) => cleanup.push(unlisten));
-    return () => {
-      disposed = true;
-      cleanup.forEach((unlisten) => unlisten());
-    };
-  }, []);
-
-  async function changeMonitoring(value: boolean): Promise<void> {
-    setError(null);
-    try {
-      setRuntime(await updateMonitoring(value));
-    } catch (nextError) {
-      setError(errorText(nextError));
-    }
-  }
-
-  async function changePlatform(platformId: PlatformId, value: boolean): Promise<void> {
-    setError(null);
-    try {
-      setRuntime(await updatePlatformPermission(platformId, value));
-    } catch (nextError) {
-      setError(errorText(nextError));
-    }
-  }
-
-  async function runTask(option: SuggestionOption): Promise<void> {
-    setError(null);
-    setResponse(null);
-    setWriting(null);
-    setActiveTask(option.task);
-    try {
-      if (option.task === 'CHECK_WRITING') {
-        setWriting(await checkWriting());
-      } else {
-        setResponse(await requestAssistance(option.task, tone));
-      }
-      setResultTask(option.task);
-    } catch (nextError) {
-      setError(errorText(nextError));
-    } finally {
-      setActiveTask(null);
-    }
-  }
-
-  async function copyOutput(output: string, index: number): Promise<void> {
-    await navigator.clipboard.writeText(output);
-    if (resultTask) {
-      try {
-        setHabits(await recordCopyPreference(resultTask, tone, output.length));
-      } catch {
-        // Copy remains useful even if optional preference learning is unavailable.
-      }
-    }
-    setCopied(index);
-    window.setTimeout(() => setCopied(null), 1_500);
-  }
-
-  async function verifyProvider(): Promise<void> {
-    setHealth('checking');
-    setError(null);
-    try {
-      const result = await checkProvider();
-      setHealth(result.configured && result.reachable ? 'ready' : 'failed');
-    } catch (nextError) {
-      setHealth('failed');
-      setError(errorText(nextError));
-    }
-  }
-
-  if (mode === 'tiny') {
-    return (
-      <main className="tiny-companion" data-testid="tiny-companion">
-        <button
-          className="tiny-companion__drag"
-          onMouseDown={() => void startWindowDrag()}
-          title="Drag POP"
-          type="button"
-        >
-          <GripHorizontal aria-hidden="true" size={16} />
-        </button>
-        <button
-          className="tiny-companion__face"
-          onClick={() => setMode('compact')}
-          title="Open POP"
-          type="button"
-        >
-          <img alt="" src={popMark} />
-          <span className={`presence-dot ${runtime.currentContext ? 'presence-dot--local' : ''}`} />
-        </button>
-      </main>
+      setResultReady(false);
+      void emit('pop://context-changed');
+      send(snapshot.currentContext ? { type: 'CONTEXT_READY' } : { type: 'RESET' });
+    }).then((cleanup) => cleanups.push(cleanup));
+    void onCloudActivity((active) => send({ type: active ? 'REQUEST' : 'STREAM_END' })).then(
+      (cleanup) => cleanups.push(cleanup),
     );
+    void onAssistanceChunk(() => send({ type: 'CHUNK' })).then((cleanup) => cleanups.push(cleanup));
+    void onAssistanceComplete(() => {
+      setResultReady(true);
+      send({ type: 'SUCCESS' });
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen('pop://speech-collapsed', () => setResultReady(true)).then((cleanup) =>
+      cleanups.push(cleanup),
+    );
+    void appListen('pop://variant-requested', () => {
+      if (lastTask) void runTask(lastTask);
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<number>('pop://avatar-size', (value) => {
+      if ([56, 76, 104].includes(value)) {
+        setSize(value as AvatarSize);
+        void saveAvatarSize(value);
+      }
+    }).then((cleanup) => cleanups.push(cleanup));
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [lastTask, runTask, send]);
+
+  useEffect(() => {
+    void resizeAvatarSurface(size, contextReady);
+  }, [contextReady, size]);
+
+  function activate(direction: Direction) {
+    if (resultReady && direction === 'left') {
+      void emit('pop://navigate-result', 'previous');
+      void showSurface('speech');
+      return;
+    }
+    if (resultReady && direction === 'right') {
+      void emit('pop://navigate-result', 'next');
+      void showSurface('speech');
+      return;
+    }
+    const action = actions[direction];
+    if (action.task) void runTask(action.task);
+    else void toggleMenu();
   }
 
-  const connected = runtime.connectedAdapters.length > 0;
-  const currentPlatform = runtime.currentContext?.observation.platformId;
+  function onWheel(event: React.WheelEvent) {
+    event.preventDefault();
+    const sizes: AvatarSize[] = [56, 76, 104];
+    const next = Math.max(0, Math.min(2, sizes.indexOf(size) + (event.deltaY < 0 ? 1 : -1)));
+    setSize(sizes[next]!);
+    void saveAvatarSize(sizes[next]!);
+  }
 
+  const expression: ExpressionState = runtime.permissions.monitoringEnabled
+    ? state.context.expression
+    : 'sleeping';
   return (
-    <main className={`companion companion--${mode}`} data-testid="pop-companion">
-      <header className="titlebar">
-        <button
-          className="brand-drag"
-          onMouseDown={() => void startWindowDrag()}
-          title="Drag POP"
-          type="button"
-        >
-          <img alt="" className="brand-mark" src={popMark} />
-          <span className="brand-copy">
-            <strong>POP</strong>
-            <small>
-              {currentPlatform ? `${currentPlatform} context` : 'Private desktop copilot'}
-            </small>
-          </span>
-          <GripHorizontal aria-hidden="true" className="drag-grip" size={16} />
-        </button>
-        <div className="window-actions">
-          <button
-            className="icon-button"
-            onClick={() => setMode(getNextExpandedMode(mode))}
-            title={mode === 'expanded' ? 'Compact' : 'Expand'}
-            type="button"
-          >
-            {mode === 'expanded' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-          <button
-            className="icon-button"
-            onClick={() => void hideCompanion()}
-            title="Hide to tray"
-            type="button"
-          >
-            <X size={17} />
-          </button>
-        </div>
-      </header>
-
-      {mode === 'compact' ? (
-        <section className="compact-content" aria-live="polite">
-          <div className={`status-orb ${runtime.currentContext ? 'status-orb--active' : ''}`}>
-            {runtime.currentContext ? <Sparkles size={19} /> : <ShieldCheck size={19} />}
-          </div>
-          <div className="compact-copy">
-            <strong>{runtime.suggestion ?? `${greeting()}, POP is ready`}</strong>
-            <span>
-              {connected
-                ? `${runtime.connectedAdapters.join(' + ')} connected`
-                : 'Connect a source'}
-            </span>
-          </div>
-          <button
-            className="details-button"
-            onClick={() => setMode('expanded')}
-            title="Open details"
-            type="button"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </section>
-      ) : (
-        <section className="expanded-content">
-          <div className="runtime-summary" aria-live="polite">
-            <div
-              className={`status-orb status-orb--large ${runtime.currentContext ? 'status-orb--active' : ''}`}
-            >
-              {cloudActive ? <LoaderCircle className="spin" size={21} /> : <Sparkles size={21} />}
-            </div>
-            <div>
-              <span className="eyebrow">Live runtime</span>
-              <strong>
-                {loading
-                  ? 'Starting POP Core'
-                  : runtime.currentContext
-                    ? 'Context ready'
-                    : greeting()}
-              </strong>
-              <small>
-                {connected
-                  ? `${runtime.connectedAdapters.join(' + ')} connected`
-                  : 'No adapter connected'}
-              </small>
-            </div>
-            <span
-              className={`status-badge ${runtime.permissions.monitoringEnabled ? 'status-badge--ready' : ''}`}
-            >
-              {runtime.permissions.monitoringEnabled ? 'On' : 'Off'}
-            </span>
-          </div>
-
-          <div className="segmented-control segmented-control--four" role="tablist">
-            {(['assist', 'connect', 'privacy', 'memory'] as const).map((tab) => (
+    <main
+      className={`avatar-surface ${contextReady ? 'avatar-surface--ready' : ''}`}
+      onKeyDown={(event) => {
+        const direction = (
+          { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
+        )[event.key as 'ArrowUp'];
+        if (direction && contextReady) {
+          event.preventDefault();
+          activate(direction);
+        }
+      }}
+      onWheel={onWheel}
+      tabIndex={0}
+    >
+      {contextReady && (
+        <div className="context-actions" aria-label="POP actions">
+          {(Object.keys(actions) as Direction[]).map((direction) => {
+            const action = actions[direction];
+            const label =
+              resultReady && direction === 'left'
+                ? 'Previous'
+                : resultReady && direction === 'right'
+                  ? 'Next'
+                  : action.label;
+            return (
               <button
-                className={activeTab === tab ? 'is-selected' : ''}
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                role="tab"
+                className={`context-action context-action--${direction}`}
+                key={direction}
+                onClick={() => activate(direction)}
                 type="button"
               >
-                {tab === 'assist'
-                  ? 'Assist'
-                  : tab === 'connect'
-                    ? 'Connect'
-                    : tab === 'privacy'
-                      ? 'Platforms'
-                      : 'Memory'}
+                {direction === 'left' || direction === 'right' ? null : action.icon}
+                {label}
               </button>
-            ))}
-          </div>
-
-          {activeTab === 'assist' && (
-            <div className="tab-panel scroll-panel" role="tabpanel">
-              <div className="context-heading">
-                <div>
-                  <span className="eyebrow">Current context</span>
-                  <h1>{contextLabel(runtime.currentContext?.observation.kind)}</h1>
-                </div>
-                {runtime.currentContext?.source === 'VSCODE' ? (
-                  <Code2 className="accent-icon" size={20} />
-                ) : (
-                  <Globe2 className="accent-icon" size={20} />
-                )}
-              </div>
-              {runtime.currentContext ? (
-                <div className="context-preview">
-                  <p>{contextPreview}</p>
-                  <span>Temporary context, expires automatically</span>
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <ShieldCheck size={20} />
-                  <strong>Nothing is being analyzed</strong>
-                  <span>
-                    Turn monitoring on, allow a platform, then select text or pause in a supported
-                    field.
-                  </span>
-                </div>
-              )}
-
-              {runtime.suggestions.length > 0 && (
-                <div className="assist-controls">
-                  <label>
-                    <span>Response tone</span>
-                    <select value={tone} onChange={(event) => setTone(event.target.value)}>
-                      <option value="natural">Natural</option>
-                      <option value="concise">Concise</option>
-                      <option value="friendly">Friendly</option>
-                      <option value="professional">Professional</option>
-                    </select>
-                  </label>
-                  <div className="suggestion-actions">
-                    {runtime.suggestions.map((option) => (
-                      <button
-                        className={
-                          option === runtime.suggestions[0] ? 'primary-button' : 'secondary-button'
-                        }
-                        disabled={
-                          activeTask !== null || (!option.local && !runtime.providerConfigured)
-                        }
-                        key={option.task}
-                        onClick={() => void runTask(option)}
-                        title={option.reason}
-                        type="button"
-                      >
-                        {activeTask === option.task ? (
-                          <LoaderCircle className="spin" size={16} />
-                        ) : (
-                          <Sparkles size={16} />
-                        )}
-                        {option.label}
-                        {option.local && <small>Local</small>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {writing && (
-                <article className="result-item">
-                  <span className="result-meta">
-                    {writing.issues.length} issue{writing.issues.length === 1 ? '' : 's'} ·{' '}
-                    {writing.engine} · {writing.elapsedMs} ms
-                  </span>
-                  <p>{writing.corrected}</p>
-                  <button
-                    onClick={() => void copyOutput(writing.corrected, 0)}
-                    title="Copy correction"
-                    type="button"
-                  >
-                    {copied === 0 ? <Check size={15} /> : <Copy size={15} />}
-                    {copied === 0 ? 'Copied' : 'Copy'}
-                  </button>
-                </article>
-              )}
-
-              {response?.outputs.map((output, index) => (
-                <article className="result-item" key={`${response.requestId}-${index}`}>
-                  <span className="result-meta">
-                    {response.provider} · {response.model}
-                  </span>
-                  <p>{output}</p>
-                  <button
-                    onClick={() => void copyOutput(output, index)}
-                    title="Copy result"
-                    type="button"
-                  >
-                    {copied === index ? <Check size={15} /> : <Copy size={15} />}
-                    {copied === index ? 'Copied' : 'Copy'}
-                  </button>
-                </article>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'connect' && (
-            <div className="tab-panel scroll-panel" role="tabpanel">
-              <div className="context-heading">
-                <div>
-                  <span className="eyebrow">Local adapters</span>
-                  <h1>Connect a source</h1>
-                </div>
-                <Clipboard className="accent-icon" size={20} />
-              </div>
-              <div className="pairing-code">
-                <span>Pairing code</span>
-                <strong>{runtime.pairingCode}</strong>
-                <button
-                  onClick={() => void refreshPairingCode()}
-                  title="New pairing code"
-                  type="button"
-                >
-                  <RefreshCw size={15} />
-                </button>
-              </div>
-              <dl className="status-list">
-                <div>
-                  <dt>
-                    <Globe2 size={17} />
-                    Chrome
-                  </dt>
-                  <dd>
-                    <span
-                      className={`status-badge ${runtime.connectedAdapters.includes('CHROME') ? 'status-badge--ready' : ''}`}
-                    >
-                      {runtime.connectedAdapters.includes('CHROME') ? 'Connected' : 'Offline'}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>
-                    <Code2 size={17} />
-                    VS Code / Cursor
-                  </dt>
-                  <dd>
-                    <span
-                      className={`status-badge ${runtime.connectedAdapters.includes('VSCODE') ? 'status-badge--ready' : ''}`}
-                    >
-                      {runtime.connectedAdapters.includes('VSCODE') ? 'Connected' : 'Offline'}
-                    </span>
-                  </dd>
-                </div>
-                <div>
-                  <dt>
-                    <Cloud size={17} />
-                    Groq
-                  </dt>
-                  <dd>
-                    <button
-                      className="text-button"
-                      onClick={() => void verifyProvider()}
-                      type="button"
-                    >
-                      {health === 'checking'
-                        ? 'Checking'
-                        : health === 'ready'
-                          ? 'Reachable'
-                          : health === 'failed'
-                            ? 'Unavailable'
-                            : 'Test'}
-                    </button>
-                  </dd>
-                </div>
-              </dl>
-              <div className="privacy-note">
-                <ShieldCheck size={17} />
-                <span>
-                  Pairing is local. Codes expire after five minutes and are replaced after
-                  successful use.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'privacy' && (
-            <div className="tab-panel scroll-panel" role="tabpanel">
-              <div className="context-heading">
-                <div>
-                  <span className="eyebrow">Permission center</span>
-                  <h1>Choose where POP helps</h1>
-                </div>
-                <ShieldCheck className="accent-icon" size={20} />
-              </div>
-              <div className="permission-list">
-                <label className="permission-master">
-                  <span>
-                    <strong>Monitoring</strong>
-                    <small>Accept meaningful events from allowed platforms</small>
-                  </span>
-                  <input
-                    checked={runtime.permissions.monitoringEnabled}
-                    onChange={(event) => void changeMonitoring(event.target.checked)}
-                    type="checkbox"
-                  />
-                </label>
-                {PLATFORMS.map((platform) => (
-                  <label key={platform.id}>
-                    <span>
-                      <strong>{platform.label}</strong>
-                      <small>{platform.scope}</small>
-                    </span>
-                    <input
-                      checked={runtime.permissions.platforms[platform.id] ?? false}
-                      onChange={(event) => void changePlatform(platform.id, event.target.checked)}
-                      type="checkbox"
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="privacy-note">
-                <ShieldCheck size={17} />
-                <span>
-                  POP never reads passwords, posts, clicks, types, sends, or executes actions.
-                  Browser access must also be granted in the Chrome extension.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'memory' && (
-            <div className="tab-panel scroll-panel" role="tabpanel">
-              <div className="context-heading">
-                <div>
-                  <span className="eyebrow">Local personalization</span>
-                  <h1>What POP has learned</h1>
-                </div>
-                <Brain className="accent-icon" size={20} />
-              </div>
-              {habits.length === 0 ? (
-                <div className="empty-state">
-                  <Brain size={20} />
-                  <strong>No learned habits yet</strong>
-                  <span>
-                    Copy a few results and POP will learn aggregate tone and length preferences.
-                  </span>
-                </div>
-              ) : (
-                <div className="habit-list">
-                  {habits.map((habit) => (
-                    <article key={habit.id}>
-                      <span>
-                        <strong>{habit.label}</strong>
-                        <small>
-                          {habit.evidenceCount} signal{habit.evidenceCount === 1 ? '' : 's'} ·{' '}
-                          {Math.round(habit.confidence * 100)}% confidence
-                        </small>
-                      </span>
-                      <button
-                        onClick={() => void forgetLearnedHabit(habit.id).then(setHabits)}
-                        title="Forget this habit"
-                        type="button"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
-              <div className="privacy-note">
-                <ShieldCheck size={17} />
-                <span>
-                  Only task, tone, coarse length, and counts are stored. Drafts, messages, generated
-                  answers, and code are never saved as memory.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="error-banner" role="alert">
-              {error}
-            </div>
-          )}
-          <footer className="expanded-footer">
-            <span>Core protocol v2</span>
-            <strong>{cloudActive ? 'Cloud active' : 'Local first'}</strong>
-          </footer>
-        </section>
+            );
+          })}
+        </div>
+      )}
+      <button
+        className="avatar-button"
+        onDoubleClick={() => void toggleMenu()}
+        onPointerDown={(event) => {
+          if (event.detail === 1) void startWindowDrag();
+        }}
+        style={{ width: size, height: size }}
+        title="Drag POP. Double-click for settings. Scroll to resize."
+        type="button"
+      >
+        <PopAvatar expression={expression} size={size} />
+      </button>
+      {resultReady && (
+        <button
+          aria-label="Open POP response"
+          className="result-dot"
+          onClick={() => void showSurface('speech')}
+          type="button"
+        />
       )}
     </main>
   );
+}
+
+function SpeechSurface() {
+  const [history, setHistory] = useState<ResultPayload[]>([]);
+  const [index, setIndex] = useState(0);
+  const [stream, setStream] = useState('');
+  const [streamMeta, setStreamMeta] = useState<Omit<ResultPayload, 'output'> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const historyRef = useRef<ResultPayload[]>([]);
+  const timer = useRef<number | undefined>(undefined);
+  const active = stream || history[index]?.output || '';
+
+  const scheduleCollapse = useCallback(() => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      void hideCurrentSurface();
+      void emit('pop://speech-collapsed');
+    }, 10_000);
+  }, []);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    const cleanups: Array<() => void> = [];
+    void onAssistanceStarted((payload) => {
+      setStream('');
+      setError(null);
+      setStreamMeta(payload);
+      window.clearTimeout(timer.current);
+      void showSurface('speech');
+    }).then((cleanup) => cleanups.push(cleanup));
+    void onAssistanceChunk((payload) => setStream((value) => value + payload.delta)).then(
+      (cleanup) => cleanups.push(cleanup),
+    );
+    void onAssistanceComplete((payload) => {
+      setHistory((items) => {
+        const next = [...items, payload].slice(-5);
+        setIndex(next.length - 1);
+        return next;
+      });
+      setStream('');
+      setStreamMeta(null);
+      scheduleCollapse();
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<string>('pop://assistance-failed', (value) => {
+      setError(value);
+      setStream('');
+      scheduleCollapse();
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen('pop://context-changed', () => {
+      setHistory([]);
+      historyRef.current = [];
+      setIndex(0);
+      setStream('');
+      setError(null);
+      void hideCurrentSurface();
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<'previous' | 'next'>('pop://navigate-result', (direction) => {
+      setIndex((current) => {
+        if (direction === 'previous') return Math.max(0, current - 1);
+        if (current < historyRef.current.length - 1) return current + 1;
+        void emit('pop://variant-requested');
+        return current;
+      });
+      scheduleCollapse();
+    }).then((cleanup) => cleanups.push(cleanup));
+    return () => {
+      window.clearTimeout(timer.current);
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [scheduleCollapse]);
+
+  return (
+    <main
+      className="speech-surface"
+      onMouseEnter={() => window.clearTimeout(timer.current)}
+      onMouseLeave={scheduleCollapse}
+    >
+      <div className="speech-tail" />
+      <article className="speech-bubble" aria-live="polite">
+        <div className="speech-copy">
+          {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
+          {streamMeta && (
+            <span>
+              {streamMeta.provider} · {streamMeta.model}
+            </span>
+          )}
+        </div>
+        <footer>
+          <button
+            disabled={!active}
+            onClick={() => active && navigator.clipboard.writeText(active)}
+            title="Copy response"
+            type="button"
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            onClick={() => void emit('pop://variant-requested')}
+            title="New variant"
+            type="button"
+          >
+            <RefreshCw size={16} />
+          </button>
+          <span>{history.length ? `${index + 1}/${history.length}` : ''}</span>
+          <button
+            onClick={() => {
+              void hideCurrentSurface();
+              void emit('pop://speech-collapsed');
+            }}
+            title="Collapse response"
+            type="button"
+          >
+            <Minus size={16} />
+          </button>
+          <button onClick={() => void hideCurrentSurface()} title="Close response" type="button">
+            <X size={16} />
+          </button>
+        </footer>
+      </article>
+    </main>
+  );
+}
+
+function MenuSurface() {
+  const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
+  const [section, setSection] = useState<string | null>(null);
+  const [health, setHealth] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
+  useEffect(() => {
+    void getRuntimeSnapshot().then(setRuntime);
+    let cleanup: (() => void) | undefined;
+    void onRuntimeUpdate(setRuntime).then((value) => (cleanup = value));
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') void hideCurrentSurface();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      cleanup?.();
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
+  async function providerCheck() {
+    setHealth('checking');
+    try {
+      const result = await checkProvider();
+      setHealth(result.configured && result.reachable ? 'ready' : 'failed');
+    } catch {
+      setHealth('failed');
+    }
+  }
+  const rows = [
+    { id: 'ai', label: 'AI', icon: <Sparkles size={18} />, detail: 'Local + Groq' },
+    {
+      id: 'personality',
+      label: 'Personality',
+      icon: <Palette size={18} />,
+      detail: 'Motion and greetings',
+    },
+    {
+      id: 'privacy',
+      label: 'Privacy',
+      icon: <ShieldCheck size={18} />,
+      detail: 'No raw history saved',
+    },
+    { id: 'app', label: 'App', icon: <Settings size={18} />, detail: 'Size and window controls' },
+  ];
+  return (
+    <main className="menu-surface">
+      <header>
+        <PopAvatar expression="idle" size={34} />
+        <div>
+          <strong>POP</strong>
+          <span>Private X companion</span>
+        </div>
+        <button onClick={() => void hideCurrentSurface()} title="Close menu" type="button">
+          <X size={17} />
+        </button>
+      </header>
+      <div className="menu-list">
+        <label className="menu-row">
+          <Monitor size={18} />
+          <span>
+            <strong>Monitoring</strong>
+            <small>
+              {runtime.permissions.monitoringEnabled
+                ? 'Ready for approved context'
+                : 'POP is resting'}
+            </small>
+          </span>
+          <input
+            checked={runtime.permissions.monitoringEnabled}
+            onChange={(event) => void updateMonitoring(event.target.checked).then(setRuntime)}
+            type="checkbox"
+          />
+        </label>
+        <label className="menu-row">
+          <MessageCircle size={18} />
+          <span>
+            <strong>X assistance</strong>
+            <small>Selections and drafts only</small>
+          </span>
+          <input
+            checked={runtime.permissions.platforms.X}
+            onChange={(event) =>
+              void updatePlatformPermission('X', event.target.checked).then(setRuntime)
+            }
+            type="checkbox"
+          />
+        </label>
+        {rows.map((row) => (
+          <div className="menu-group" key={row.id}>
+            <button
+              className="menu-row"
+              onClick={() => setSection(section === row.id ? null : row.id)}
+              type="button"
+            >
+              {row.icon}
+              <span>
+                <strong>{row.label}</strong>
+                <small>{row.detail}</small>
+              </span>
+              <ChevronRight className={section === row.id ? 'rotate' : ''} size={17} />
+            </button>
+            {section === row.id && (
+              <div className="submenu">
+                {row.id === 'ai' && (
+                  <button onClick={() => void providerCheck()} type="button">
+                    <Cloud size={15} />
+                    {health === 'checking'
+                      ? 'Checking...'
+                      : health === 'ready'
+                        ? 'Groq connected'
+                        : health === 'failed'
+                          ? 'Groq unavailable'
+                          : 'Check Groq'}
+                  </button>
+                )}
+                {row.id === 'personality' && (
+                  <span>
+                    <Eye size={15} />
+                    State-based expressions on
+                  </span>
+                )}
+                {row.id === 'privacy' && (
+                  <button
+                    onClick={() => void updateMonitoring(false).then(setRuntime)}
+                    type="button"
+                  >
+                    <EyeOff size={15} />
+                    Stop and clear context
+                  </button>
+                )}
+                {row.id === 'app' && (
+                  <div className="size-control">
+                    {([56, 76, 104] as AvatarSize[]).map((value) => (
+                      <button
+                        key={value}
+                        onClick={() => void emit('pop://avatar-size', value)}
+                        type="button"
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <footer>
+        <span>
+          {runtime.connectedAdapters.includes('CHROME')
+            ? 'X adapter connected'
+            : 'X adapter offline'}
+        </span>
+        <button onClick={() => void hideSurface('avatar')} title="Hide POP to tray" type="button">
+          <Minus size={16} />
+        </button>
+      </footer>
+    </main>
+  );
+}
+
+export function App() {
+  const label = isTauriRuntime()
+    ? getCurrentWindow().label
+    : (new URLSearchParams(location.search).get('surface') ?? 'avatar');
+  if (label === 'speech') return <SpeechSurface />;
+  if (label === 'menu') return <MenuSurface />;
+  return <AvatarSurface />;
 }

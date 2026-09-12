@@ -1,226 +1,217 @@
-use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::{WebSocketStream, accept_async, tungstenite::Message};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
+    net::windows::named_pipe::{NamedPipeServer, ServerOptions},
+    sync::broadcast,
+};
 
 use crate::{
-    core::PopCore,
+    core::{PopCore, RuntimeSnapshot},
+    native_auth::PIPE_NAME,
     protocol::{
         AdapterSource, EnvelopePayload, MAX_MESSAGE_BYTES, ProtocolEnvelope, ServerMessage,
     },
 };
 
-const SERVER_ADDRESS: &str = "127.0.0.1:17831";
+#[derive(Clone)]
+pub struct NativeBridge {
+    sender: broadcast::Sender<ServerMessage>,
+}
 
-async fn send_message(
-    socket: &mut WebSocketStream<TcpStream>,
+impl NativeBridge {
+    pub fn new() -> Self {
+        let (sender, _) = broadcast::channel(16);
+        Self { sender }
+    }
+
+    pub fn publish_control(&self, snapshot: &RuntimeSnapshot) {
+        let _ = self.sender.send(control_message(snapshot));
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+enum HostMessage {
+    HostRegister { secret: String },
+}
+
+fn same_secret(left: &str, right: &str) -> bool {
+    let left = Sha256::digest(left.as_bytes());
+    let right = Sha256::digest(right.as_bytes());
+    left.as_slice() == right.as_slice()
+}
+
+fn control_message(snapshot: &RuntimeSnapshot) -> ServerMessage {
+    ServerMessage::Control {
+        monitoring_enabled: snapshot.permissions.monitoring_enabled,
+        x_enabled: snapshot
+            .permissions
+            .platforms
+            .get(&crate::protocol::PlatformId::X)
+            .copied()
+            .unwrap_or(false),
+    }
+}
+
+async fn send_message<W: AsyncWrite + Unpin>(
+    writer: &mut W,
     message: &ServerMessage,
 ) -> Result<(), String> {
-    let json = serde_json::to_string(message).map_err(|error| error.to_string())?;
-    socket
-        .send(Message::Text(json.into()))
+    let mut json = serde_json::to_vec(message).map_err(|error| error.to_string())?;
+    json.push(b'\n');
+    writer
+        .write_all(&json)
         .await
         .map_err(|error| error.to_string())
 }
 
-async fn handle_connection(stream: TcpStream, core: PopCore, app: AppHandle) -> Result<(), String> {
-    let mut socket = accept_async(stream)
-        .await
-        .map_err(|error| error.to_string())?;
-    let mut registered_source: Option<AdapterSource> = None;
-    let mut messages_in_window = 0_u32;
-    let mut window_started = std::time::Instant::now();
-
-    while let Some(message) = socket.next().await {
-        let message = message.map_err(|error| error.to_string())?;
-        if !message.is_text() {
-            continue;
-        }
-        if window_started.elapsed() > std::time::Duration::from_secs(60) {
-            window_started = std::time::Instant::now();
-            messages_in_window = 0;
-        }
-        messages_in_window += 1;
-        if messages_in_window > 120 {
-            send_message(
-                &mut socket,
-                &ServerMessage::Error {
-                    code: "RATE_LIMITED".to_owned(),
-                    message: "Too many adapter messages.".to_owned(),
-                },
-            )
-            .await?;
-            continue;
-        }
-
-        let text = message.into_text().map_err(|error| error.to_string())?;
-        if text.len() > MAX_MESSAGE_BYTES {
-            send_message(
-                &mut socket,
-                &ServerMessage::Error {
-                    code: "MESSAGE_TOO_LARGE".to_owned(),
-                    message: "Adapter message exceeded the local limit.".to_owned(),
-                },
-            )
-            .await?;
-            continue;
-        }
-        let envelope: ProtocolEnvelope = match serde_json::from_str(&text) {
-            Ok(envelope) => envelope,
-            Err(_) => {
-                send_message(
-                    &mut socket,
-                    &ServerMessage::Error {
-                        code: "INVALID_MESSAGE".to_owned(),
-                        message: "Adapter message was not valid protocol JSON.".to_owned(),
-                    },
-                )
-                .await?;
-                continue;
-            }
-        };
-        if let Err(code) = envelope.validate() {
-            send_message(
-                &mut socket,
-                &ServerMessage::Error {
-                    code: code.to_owned(),
-                    message: "Adapter message validation failed.".to_owned(),
-                },
-            )
-            .await?;
-            continue;
-        }
-
-        let source = envelope.source;
-        let message_id = envelope.id.clone();
-        match envelope.message {
-            EnvelopePayload::Register(payload) => match core.register(
-                source,
-                payload.pairing_code.as_deref(),
-                payload.session_token.as_deref(),
-            ) {
-                Ok(session_token) => {
-                    registered_source = Some(source);
-                    send_message(&mut socket, &ServerMessage::Registered { session_token }).await?;
+async fn process_envelope(
+    envelope: ProtocolEnvelope,
+    writer: &mut (impl AsyncWrite + Unpin),
+    core: &PopCore,
+    app: &AppHandle,
+) -> Result<(), String> {
+    let message_id = envelope.id.clone();
+    if envelope.source != AdapterSource::Chrome {
+        return send_message(
+            writer,
+            &ServerMessage::Error {
+                code: "SOURCE_DENIED".to_owned(),
+                message: "This bridge accepts the X adapter only.".to_owned(),
+            },
+        )
+        .await;
+    }
+    match envelope.message {
+        EnvelopePayload::Context(observation) => {
+            match core.accept_context(AdapterSource::Chrome, observation) {
+                Ok(()) => {
+                    send_message(writer, &ServerMessage::Ack { message_id }).await?;
                     let _ = app.emit("pop://runtime-updated", core.snapshot());
+                    if let Some(window) = app.get_webview_window("avatar") {
+                        let _ = window.show();
+                    }
                 }
                 Err(code) => {
                     send_message(
-                        &mut socket,
+                        writer,
                         &ServerMessage::Error {
                             code: code.to_owned(),
-                            message: "Adapter registration was rejected.".to_owned(),
+                            message: "Context was blocked by POP Core.".to_owned(),
                         },
                     )
-                    .await?;
+                    .await?
                 }
-            },
-            EnvelopePayload::Context(observation) => {
-                if registered_source != Some(source) {
-                    send_message(
-                        &mut socket,
-                        &ServerMessage::Error {
-                            code: "ADAPTER_NOT_REGISTERED".to_owned(),
-                            message: "Pair this adapter before sending context.".to_owned(),
-                        },
-                    )
-                    .await?;
-                    continue;
-                }
-                match core.accept_context(source, observation) {
-                    Ok(()) => {
-                        send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
-                        let _ = app.emit("pop://runtime-updated", core.snapshot());
-                    }
-                    Err(code) => {
-                        send_message(
-                            &mut socket,
-                            &ServerMessage::Error {
-                                code: code.to_owned(),
-                                message: "Context was blocked by POP Core.".to_owned(),
-                            },
-                        )
-                        .await?;
-                    }
-                }
-            }
-            EnvelopePayload::PlatformPermission(permission) => {
-                if registered_source != Some(AdapterSource::Chrome)
-                    || source != AdapterSource::Chrome
-                {
-                    send_message(
-                        &mut socket,
-                        &ServerMessage::Error {
-                            code: "PERMISSION_SOURCE_DENIED".to_owned(),
-                            message: "Only the paired Chrome adapter may synchronize site access."
-                                .to_owned(),
-                        },
-                    )
-                    .await?;
-                    continue;
-                }
-                match core.set_platform_permission(permission.platform_id, permission.enabled) {
-                    Ok(()) => {
-                        send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
-                        let _ = app.emit("pop://runtime-updated", core.snapshot());
-                    }
-                    Err(code) => {
-                        send_message(
-                            &mut socket,
-                            &ServerMessage::Error {
-                                code,
-                                message: "Site permission could not be persisted.".to_owned(),
-                            },
-                        )
-                        .await?;
-                    }
-                }
-            }
-            EnvelopePayload::UiCommand(payload) => {
-                if registered_source != Some(source) {
-                    send_message(
-                        &mut socket,
-                        &ServerMessage::Error {
-                            code: "ADAPTER_NOT_REGISTERED".to_owned(),
-                            message: "Pair this adapter before opening POP.".to_owned(),
-                        },
-                    )
-                    .await?;
-                    continue;
-                }
-                match payload.command {
-                    crate::protocol::UiCommand::Show => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                }
-                send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
-            }
-            EnvelopePayload::Heartbeat(_) => {
-                send_message(&mut socket, &ServerMessage::Ack { message_id }).await?;
             }
         }
-    }
-
-    if let Some(source) = registered_source {
-        core.mark_disconnected(source);
-        let _ = app.emit("pop://runtime-updated", core.snapshot());
+        EnvelopePayload::UiCommand(payload) => {
+            let crate::protocol::UiCommand::Show = payload.command;
+            if let Some(window) = app.get_webview_window("avatar") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            send_message(writer, &ServerMessage::Ack { message_id }).await?;
+        }
+        EnvelopePayload::Heartbeat(_) => {
+            send_message(writer, &control_message(&core.snapshot())).await?;
+        }
     }
     Ok(())
 }
 
-pub async fn run(core: PopCore, app: AppHandle) -> Result<(), String> {
-    let listener = TcpListener::bind(SERVER_ADDRESS)
+async fn handle_connection(
+    pipe: NamedPipeServer,
+    core: PopCore,
+    app: AppHandle,
+    expected_secret: String,
+    bridge: NativeBridge,
+) -> Result<(), String> {
+    let (reader, mut writer) = tokio::io::split(pipe);
+    let mut lines = BufReader::new(reader).lines();
+    let first = lines
+        .next_line()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .ok_or("HOST_DISCONNECTED")?;
+    if first.len() > 1024 {
+        return Err("HOST_REGISTER_TOO_LARGE".to_owned());
+    }
+    let register: HostMessage =
+        serde_json::from_str(&first).map_err(|_| "HOST_REGISTER_INVALID".to_owned())?;
+    let HostMessage::HostRegister { secret } = register;
+    if !same_secret(&secret, &expected_secret) {
+        return Err("HOST_AUTHENTICATION_FAILED".to_owned());
+    }
+
+    core.mark_connected(AdapterSource::Chrome)
+        .map_err(str::to_owned)?;
+    let _ = app.emit("pop://runtime-updated", core.snapshot());
+    send_message(&mut writer, &control_message(&core.snapshot())).await?;
+    let mut control = bridge.sender.subscribe();
+
     loop {
-        let (stream, _) = listener.accept().await.map_err(|error| error.to_string())?;
+        tokio::select! {
+            line = lines.next_line() => {
+                let Some(text) = line.map_err(|error| error.to_string())? else { break; };
+                if text.len() > MAX_MESSAGE_BYTES {
+                    send_message(&mut writer, &ServerMessage::Error { code: "MESSAGE_TOO_LARGE".to_owned(), message: "Adapter message exceeded the local limit.".to_owned() }).await?;
+                    continue;
+                }
+                let envelope: ProtocolEnvelope = match serde_json::from_str(&text) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        send_message(&mut writer, &ServerMessage::Error { code: "INVALID_MESSAGE".to_owned(), message: "Adapter message was invalid.".to_owned() }).await?;
+                        continue;
+                    }
+                };
+                if let Err(code) = envelope.validate() {
+                    send_message(&mut writer, &ServerMessage::Error { code: code.to_owned(), message: "Adapter message validation failed.".to_owned() }).await?;
+                    continue;
+                }
+                process_envelope(envelope, &mut writer, &core, &app).await?;
+            }
+            message = control.recv() => {
+                if let Ok(message) = message { send_message(&mut writer, &message).await?; }
+            }
+        }
+    }
+    core.mark_disconnected(AdapterSource::Chrome);
+    let _ = app.emit("pop://runtime-updated", core.snapshot());
+    Ok(())
+}
+
+pub async fn run(
+    core: PopCore,
+    app: AppHandle,
+    secret: String,
+    bridge: NativeBridge,
+) -> Result<(), String> {
+    let mut first = true;
+    loop {
+        let pipe = ServerOptions::new()
+            .first_pipe_instance(first)
+            .create(PIPE_NAME)
+            .map_err(|error| error.to_string())?;
+        first = false;
+        pipe.connect().await.map_err(|error| error.to_string())?;
         let connection_core = core.clone();
         let connection_app = app.clone();
+        let connection_secret = secret.clone();
+        let connection_bridge = bridge.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = handle_connection(stream, connection_core, connection_app).await;
+            if let Err(error) = handle_connection(
+                pipe,
+                connection_core,
+                connection_app,
+                connection_secret,
+                connection_bridge,
+            )
+            .await
+            {
+                eprintln!("POP native bridge connection ended: {error}");
+            }
         });
     }
 }

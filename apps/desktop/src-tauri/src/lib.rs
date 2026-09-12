@@ -2,6 +2,7 @@ mod core;
 mod foreground;
 mod grammar;
 mod groq;
+mod native_auth;
 mod protocol;
 mod security;
 mod server;
@@ -15,7 +16,8 @@ use groq::{AssistanceResponse, GroqProvider};
 use serde::Serialize;
 use storage::{LearnedHabit, Store};
 use tauri::{
-    AppHandle, Emitter, Manager, State, WindowEvent,
+    AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -24,6 +26,10 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct ProviderState(Option<GroqProvider>);
 
+pub fn native_host_secret() -> Result<String, String> {
+    native_auth::load_secret()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProviderHealth {
@@ -31,15 +37,17 @@ struct ProviderHealth {
     reachable: bool,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompanionPreferences {
+    avatar_size: u16,
+}
+
 fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window("avatar") {
         let _ = window.show();
         let _ = window.set_focus();
     }
-}
-
-fn emit_snapshot(app: &AppHandle, core: &PopCore) {
-    let _ = app.emit("pop://runtime-updated", core.snapshot());
 }
 
 #[tauri::command]
@@ -48,14 +56,40 @@ fn get_runtime_snapshot(core: State<'_, PopCore>) -> RuntimeSnapshot {
 }
 
 #[tauri::command]
+fn get_companion_preferences(core: State<'_, PopCore>) -> Result<CompanionPreferences, String> {
+    let store = core.store();
+    let size = store
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .text_setting("avatar_size")?
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|value| matches!(value, 56 | 76 | 104))
+        .unwrap_or(76);
+    Ok(CompanionPreferences { avatar_size: size })
+}
+
+#[tauri::command]
+fn set_avatar_size(value: u16, core: State<'_, PopCore>) -> Result<(), String> {
+    if !matches!(value, 56 | 76 | 104) {
+        return Err("INVALID_AVATAR_SIZE".to_owned());
+    }
+    core.store()
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .set_text("avatar_size", &value.to_string(), now_ms())
+}
+
+#[tauri::command]
 fn set_monitoring(
     value: bool,
     app: AppHandle,
     core: State<'_, PopCore>,
+    bridge: State<'_, server::NativeBridge>,
 ) -> Result<RuntimeSnapshot, String> {
     core.set_monitoring(value)?;
     let snapshot = core.snapshot();
     let _ = app.emit("pop://runtime-updated", &snapshot);
+    bridge.publish_control(&snapshot);
     Ok(snapshot)
 }
 
@@ -65,18 +99,61 @@ fn set_platform_permission(
     value: bool,
     app: AppHandle,
     core: State<'_, PopCore>,
+    bridge: State<'_, server::NativeBridge>,
 ) -> Result<RuntimeSnapshot, String> {
     core.set_platform_permission(platform_id, value)?;
     let snapshot = core.snapshot();
     let _ = app.emit("pop://runtime-updated", &snapshot);
+    bridge.publish_control(&snapshot);
     Ok(snapshot)
 }
 
 #[tauri::command]
-fn regenerate_pairing_code(app: AppHandle, core: State<'_, PopCore>) -> Result<String, String> {
-    let code = core.regenerate_pairing_code()?;
-    emit_snapshot(&app, &core);
-    Ok(code)
+fn hide_surface(label: String, app: AppHandle) -> Result<(), String> {
+    app.get_webview_window(&label)
+        .ok_or("SURFACE_NOT_FOUND")?
+        .hide()
+        .map_err(|error| error.to_string())
+}
+
+fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
+    let avatar = app.get_webview_window("avatar").ok_or("AVATAR_NOT_FOUND")?;
+    let target = app.get_webview_window(label).ok_or("SURFACE_NOT_FOUND")?;
+    let origin = avatar.outer_position().map_err(|error| error.to_string())?;
+    let avatar_size = avatar.outer_size().map_err(|error| error.to_string())?;
+    let target_size = target.outer_size().map_err(|error| error.to_string())?;
+    let (x, y) = match label {
+        "menu" => (origin.x + avatar_size.width as i32 - 16, origin.y),
+        "speech" => (
+            origin.x + avatar_size.width as i32 - target_size.width as i32,
+            origin.y - target_size.height as i32 + 24,
+        ),
+        _ => (origin.x, origin.y),
+    };
+    target
+        .set_position(PhysicalPosition::new(x.max(0), y.max(0)))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn show_surface(label: String, app: AppHandle) -> Result<(), String> {
+    anchor_surface(&app, &label)?;
+    app.get_webview_window(&label)
+        .ok_or("SURFACE_NOT_FOUND")?
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn toggle_surface(label: String, app: AppHandle) -> Result<(), String> {
+    let window = app.get_webview_window(&label).ok_or("SURFACE_NOT_FOUND")?;
+    if window.is_visible().map_err(|error| error.to_string())? {
+        window.hide().map_err(|error| error.to_string())
+    } else {
+        anchor_surface(&app, &label)?;
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]
@@ -99,6 +176,7 @@ fn task_matches_context(task: &str, kind: protocol::ContextKind) -> bool {
         (task, kind),
         ("IMPROVE_WRITING", protocol::ContextKind::DraftText)
             | ("IMPROVE_WRITING", protocol::ContextKind::SearchQuery)
+            | ("SHORTEN", protocol::ContextKind::DraftText)
             | ("DRAFT_REPLY", protocol::ContextKind::SocialPost)
             | ("DRAFT_REPLY", protocol::ContextKind::Conversation)
             | ("EXPLAIN_CODE", protocol::ContextKind::SelectedCode)
@@ -149,11 +227,50 @@ async fn run_assistance(
     }
     let provider = provider.0.clone().ok_or("GROQ_NOT_CONFIGURED")?;
     let request_id = Uuid::new_v4().to_string();
+    let cancellation = core.begin_generation();
+    let _ = app.emit(
+        "pop://assistance-started",
+        serde_json::json!({
+            "requestId": request_id,
+            "task": task,
+            "provider": "groq",
+            "model": provider.model(),
+        }),
+    );
     let _ = app.emit("pop://cloud-activity", true);
+    let stream_app = app.clone();
+    let stream_request_id = request_id.clone();
     let result = provider
-        .generate(&request_id, &task, &tone, &context.observation.text)
+        .generate_stream(
+            &request_id,
+            &task,
+            &tone,
+            &context.observation.text,
+            cancellation,
+            move |delta| {
+                let _ = stream_app.emit(
+                    "pop://assistance-chunk",
+                    serde_json::json!({ "requestId": stream_request_id, "delta": delta }),
+                );
+            },
+        )
         .await;
     let _ = app.emit("pop://cloud-activity", false);
+
+    if let Ok(response) = &result
+        && let Some(output) = response.outputs.first()
+    {
+        let _ = app.emit(
+            "pop://assistance-complete",
+            serde_json::json!({
+                "requestId": response.request_id,
+                "output": output,
+                "task": task,
+                "provider": response.provider,
+                "model": response.model,
+            }),
+        );
+    }
 
     let (provider_name, model, output_chars, succeeded) = match &result {
         Ok(response) => (
@@ -234,10 +351,62 @@ pub fn run() {
 
             tauri::async_runtime::spawn_blocking(grammar::warm_up);
 
+            let bridge = server::NativeBridge::new();
+            app.manage(bridge.clone());
+            let native_secret =
+                native_auth::get_or_create_secret().map_err(std::io::Error::other)?;
+
+            WebviewWindowBuilder::new(app, "avatar", WebviewUrl::App("index.html".into()))
+                .title("POP")
+                .inner_size(140.0, 140.0)
+                .always_on_top(true)
+                .center()
+                .decorations(false)
+                .resizable(false)
+                .shadow(false)
+                .skip_taskbar(true)
+                .transparent(true)
+                .build()?;
+            if let Some(window) = app.get_webview_window("avatar")
+                && let Ok(store) = core.store().lock()
+            {
+                let x = store
+                    .text_setting("avatar_x")
+                    .ok()
+                    .flatten()
+                    .and_then(|value| value.parse::<i32>().ok());
+                let y = store
+                    .text_setting("avatar_y")
+                    .ok()
+                    .flatten()
+                    .and_then(|value| value.parse::<i32>().ok());
+                if let (Some(x), Some(y)) = (x, y) {
+                    let _ = window.set_position(PhysicalPosition::new(x.max(0), y.max(0)));
+                }
+            }
+            for (label, title, width, height) in [
+                ("speech", "POP response", 360.0, 220.0),
+                ("menu", "POP menu", 284.0, 430.0),
+            ] {
+                WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+                    .title(title)
+                    .inner_size(width, height)
+                    .always_on_top(true)
+                    .decorations(false)
+                    .resizable(false)
+                    .shadow(false)
+                    .skip_taskbar(true)
+                    .transparent(true)
+                    .visible(false)
+                    .build()?;
+            }
+
             let server_core = core.clone();
             let server_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = server::run(server_core, server_app.clone()).await {
+                if let Err(error) =
+                    server::run(server_core, server_app.clone(), native_secret, bridge).await
+                {
                     let _ = server_app.emit("pop://runtime-error", error);
                 }
             });
@@ -257,8 +426,13 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     "hide" => {
-                        if let Some(window) = app.get_webview_window("main") {
+                        if let Some(window) = app.get_webview_window("avatar") {
                             let _ = window.hide();
+                        }
+                        for label in ["menu", "speech"] {
+                            if let Some(window) = app.get_webview_window(label) {
+                                let _ = window.hide();
+                            }
                         }
                     }
                     "quit" => app.exit(0),
@@ -280,9 +454,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_runtime_snapshot,
+            get_companion_preferences,
+            set_avatar_size,
             set_monitoring,
             set_platform_permission,
-            regenerate_pairing_code,
+            hide_surface,
+            show_surface,
+            toggle_surface,
             provider_health,
             check_writing,
             run_assistance,
@@ -291,6 +469,15 @@ pub fn run() {
             forget_habit
         ])
         .on_window_event(|window, event| {
+            if window.label() == "avatar"
+                && let WindowEvent::Moved(position) = event
+            {
+                let core = window.app_handle().state::<PopCore>();
+                if let Ok(store) = core.store().lock() {
+                    let _ = store.set_text("avatar_x", &position.x.to_string(), now_ms());
+                    let _ = store.set_text("avatar_y", &position.y.to_string(), now_ms());
+                }
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
                 api.prevent_close();
