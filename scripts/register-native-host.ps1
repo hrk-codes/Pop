@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,16 +14,22 @@ $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
 $hostPath = Join-Path $projectRoot "apps\desktop\src-tauri\target\$profile\pop-native-host.exe"
 $extensionId = 'fpkepfajehdejjbccjaecmbmdepkaddf'
 
-Push-Location $projectRoot
-try {
-    pnpm --filter @pop/chrome-extension build
-    $cargoArgs = @('build', '--manifest-path', 'apps/desktop/src-tauri/Cargo.toml', '--bin', 'pop-native-host')
-    if ($Configuration -eq 'Release') { $cargoArgs += '--release' }
-    & cargo @cargoArgs
-    if ($LASTEXITCODE -ne 0) { throw 'The POP native host did not build.' }
+if (-not $SkipBuild) {
+    Push-Location $projectRoot
+    try {
+        pnpm --filter @pop/chrome-extension build
+        $cargoArgs = @('build', '--manifest-path', 'apps/desktop/src-tauri/Cargo.toml', '--bin', 'pop-native-host')
+        if ($Configuration -eq 'Release') { $cargoArgs += '--release' }
+        & cargo @cargoArgs
+        if ($LASTEXITCODE -ne 0) { throw 'The POP native host did not build.' }
+    }
+    finally {
+        Pop-Location
+    }
 }
-finally {
-    Pop-Location
+
+if (-not (Test-Path -LiteralPath $hostPath)) {
+    throw "POP native host is missing: $hostPath"
 }
 
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null

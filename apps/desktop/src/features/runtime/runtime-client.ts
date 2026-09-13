@@ -29,6 +29,8 @@ export interface RuntimeSnapshot {
   connectedAdapters: AdapterSource[];
   currentContext: ActiveContext | null;
   providerConfigured: boolean;
+  suspended: boolean;
+  lastContextError: string | null;
 }
 
 export interface AssistanceResponse {
@@ -81,6 +83,8 @@ export function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
       connectedAdapters: [],
       currentContext: null,
       providerConfigured: false,
+      suspended: false,
+      lastContextError: null,
     });
   return invoke('get_runtime_snapshot');
 }
@@ -104,6 +108,10 @@ export function updatePlatformPermission(
   value: boolean,
 ): Promise<RuntimeSnapshot> {
   return invoke('set_platform_permission', { platformId, value });
+}
+
+export function suspendToTray(): Promise<RuntimeSnapshot> {
+  return invoke('suspend_to_tray');
 }
 
 export function checkProvider(): Promise<ProviderHealth> {

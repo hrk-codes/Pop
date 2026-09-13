@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -61,12 +61,16 @@ pub struct RuntimeSnapshot {
     pub connected_adapters: Vec<AdapterSource>,
     pub current_context: Option<ActiveContext>,
     pub provider_configured: bool,
+    pub suspended: bool,
+    pub last_context_error: Option<String>,
 }
 
 struct RuntimeState {
     permissions: PermissionSettings,
-    connected_adapters: HashSet<AdapterSource>,
+    connected_adapters: HashMap<AdapterSource, usize>,
     current_context: Option<ActiveContext>,
+    suspended: bool,
+    last_context_error: Option<String>,
 }
 
 #[derive(Clone)]
@@ -97,8 +101,10 @@ impl PopCore {
         Self {
             state: Arc::new(RwLock::new(RuntimeState {
                 permissions,
-                connected_adapters: HashSet::new(),
+                connected_adapters: HashMap::new(),
                 current_context: None,
+                suspended: false,
+                last_context_error: None,
             })),
             store: Arc::new(Mutex::new(store)),
             provider_configured,
@@ -130,17 +136,34 @@ impl PopCore {
 
     pub fn mark_connected(&self, source: AdapterSource) -> Result<(), &'static str> {
         let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
-        state.connected_adapters.insert(source);
+        *state.connected_adapters.entry(source).or_default() += 1;
         Ok(())
     }
 
     pub fn mark_disconnected(&self, source: AdapterSource) {
         if let Ok(mut state) = self.state.write() {
-            state.connected_adapters.remove(&source);
+            if let Some(count) = state.connected_adapters.get_mut(&source) {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    state.connected_adapters.remove(&source);
+                }
+            }
         }
     }
 
     pub fn accept_context(
+        &self,
+        source: AdapterSource,
+        observation: ContextObservation,
+    ) -> Result<(), &'static str> {
+        let result = self.accept_context_inner(source, observation);
+        if let Ok(mut state) = self.state.write() {
+            state.last_context_error = result.as_ref().err().map(|code| (*code).to_owned());
+        }
+        result
+    }
+
+    fn accept_context_inner(
         &self,
         source: AdapterSource,
         observation: ContextObservation,
@@ -167,6 +190,9 @@ impl PopCore {
 
         self.cancel_generation();
         let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
+        if state.suspended {
+            return Err("POP_SUSPENDED");
+        }
         if !state.permissions.monitoring_enabled {
             return Err("MONITORING_DISABLED");
         }
@@ -192,6 +218,20 @@ impl PopCore {
             accepted_at,
             expires_at: accepted_at + CONTEXT_TTL_MS,
         });
+        Ok(())
+    }
+
+    pub fn set_suspended(&self, value: bool) -> Result<(), String> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| "CORE_STATE_UNAVAILABLE".to_owned())?;
+        state.suspended = value;
+        if value {
+            state.current_context = None;
+            state.last_context_error = None;
+            self.cancel_generation();
+        }
         Ok(())
     }
 
@@ -255,7 +295,7 @@ impl PopCore {
         {
             state.current_context = None;
         }
-        let mut connected_adapters: Vec<_> = state.connected_adapters.iter().copied().collect();
+        let mut connected_adapters: Vec<_> = state.connected_adapters.keys().copied().collect();
         connected_adapters.sort_by_key(|source| match source {
             AdapterSource::Chrome => 0,
             AdapterSource::Vscode => 1,
@@ -265,6 +305,8 @@ impl PopCore {
             connected_adapters,
             current_context: state.current_context.clone(),
             provider_configured: self.provider_configured,
+            suspended: state.suspended,
+            last_context_error: state.last_context_error.clone(),
         }
     }
 }

@@ -5,6 +5,7 @@ type ContentMessage =
   { type: 'POP_CONTEXT'; observation: ContextObservation } | { type: 'POP_GET_CONTROL' };
 
 export default defineBackground(() => {
+  const reconnectAlarm = 'pop-native-reconnect';
   let port: chrome.runtime.Port | null = null;
   let control: Control = { monitoringEnabled: false, xEnabled: false };
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -51,6 +52,7 @@ export default defineBackground(() => {
       }
     });
     port.onDisconnect.addListener(() => {
+      void chrome.runtime.lastError;
       port = null;
       control = { monitoringEnabled: false, xEnabled: false };
       broadcastControl();
@@ -68,6 +70,7 @@ export default defineBackground(() => {
   }
 
   chrome.runtime.onMessage.addListener((message: ContentMessage, sender, respond) => {
+    connect();
     if (message.type === 'POP_GET_CONTROL') {
       respond(control);
       return true;
@@ -85,6 +88,11 @@ export default defineBackground(() => {
   chrome.action.onClicked.addListener(() =>
     send(envelope({ type: 'UI_COMMAND', payload: { command: 'SHOW' } })),
   );
-  globalThis.setInterval(() => send(envelope({ type: 'HEARTBEAT', payload: {} })), 15_000);
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== reconnectAlarm) return;
+    if (port) send(envelope({ type: 'HEARTBEAT', payload: {} }));
+    else connect();
+  });
+  void chrome.alarms.create(reconnectAlarm, { periodInMinutes: 0.5 });
   connect();
 });

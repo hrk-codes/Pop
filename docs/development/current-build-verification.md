@@ -13,14 +13,29 @@ pnpm check
 Keep the last terminal open. It owns Vite, Tauri, and the Rust POP Core. `dev.ps1` also builds the WXT
 adapter and registers `pop-native-host.exe` under the current Windows account.
 
+This is development behavior, not the packaged application lifecycle. To run POP independently of a
+terminal after a successful release build:
+
+```powershell
+.\scripts\build.ps1
+.\scripts\start.ps1
+```
+
+PowerShell may then be closed. Minimize POP from its menu to suspend responses and keep the process in
+the system tray. Clicking the tray icon shows POP and resumes the previously enabled monitoring state.
+
 ## 2. Install the new X adapter once
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Remove or disable every older POP extension; they use the obsolete pairing protocol.
 3. Select **Load unpacked**.
-4. Choose `C:\Users\hrkgh\Agent learn\PoP\apps\chrome-extension\dist\chrome-mv3`.
+4. Choose `C:\Users\hrkgh\Agent learn\PoP\apps\chrome-extension\dist\chrome-mv3` itself. Do not
+   select the `content-scripts` folder inside it; Chrome must see `manifest.json` at the selected root.
 5. Verify its ID is `fpkepfajehdejjbccjaecmbmdepkaddf`.
 6. Reload any open `x.com` tab.
+
+Whenever the adapter is rebuilt, click **Reload** on its extension card and then reload X. POP's menu
+must report **X adapter connected** before an X selection can become context.
 
 There is no extension popup and no pairing code. Chrome's one-time extension and X-access approval
 cannot be skipped by a desktop application. After installation, daily controls live in POP.
@@ -41,27 +56,31 @@ and choose **Check Groq**. The menu reports status without showing the key.
 ## 4. Test the companion itself
 
 - Drag the character from its body and confirm it stays where released.
+- Confirm only the mascot is visible; POP must not draw directional buttons or reserve a large
+  invisible click area around itself.
 - Scroll over POP and confirm the character cycles through 56, 76, and 104 pixels.
 - Double-click POP and verify the compact menu opens beside it.
 - Turn Monitoring off and confirm POP sleeps.
 - Turn Monitoring and X assistance on and confirm the menu shows the intended state.
-- Hide POP through **App** or the tray, then restore it from the tray icon.
+- Use the minus button beside the menu's close button. Confirm the avatar and response hide, then
+  restore POP from the tray icon and confirm monitoring resumes.
 - Restart POP and verify its size and position return.
 
 ## 5. Test an X draft
 
 1. Open X and begin an unsent post or reply containing a grammar error.
-2. Pause for about half a second.
-3. POP should become attentive and reveal Grammar, Improve, Shorten, and More.
-4. Choose **Grammar** and verify the attached bubble returns a local correction.
-5. Choose **Improve** and verify Groq text streams into the bubble.
+2. Pause briefly after typing.
+3. POP should become attentive. Click POP once to focus it; no arrow controls should appear.
+4. Press Up for Grammar and verify the attached bubble returns a local correction.
+5. Press Down for Improve and verify Groq text streams into the bubble. Right requests Shorten.
 6. Copy the preview and confirm POP does not alter or submit the X draft.
 
 ## 6. Test a selected post
 
 1. Select text inside an X post.
-2. POP should reveal Explain, Reply, Summarize, and More.
-3. Generate a reply, then use Left and Right for previous and next variants.
+2. POP should become attentive. Click POP once to focus it; no arrow controls should appear.
+3. Press Up for Explain, Down for Reply, or Right for Summarize. After generating, Left and Right
+   navigate previous and next variants.
 4. Leave the bubble untouched for ten seconds; it should collapse to the coral result dot.
 5. Click the dot to reopen the answer.
 
@@ -85,6 +104,13 @@ Press `Ctrl+C` in the development terminal. If a previous run was interrupted:
 .\scripts\cleanup.ps1
 .\scripts\dev.ps1
 ```
+
+If POP is visible but X does not respond, double-click POP and read the status under **X assistance**:
+
+- **Extension bridge offline:** reload the POP extension and then reload X.
+- **Connected, waiting for X context:** select post text or type in an active X draft.
+- **Source not foreground:** keep Chrome in front until the selection has been recognized.
+- **Draft text ready** or **Social post ready:** use a directional action; POP Core has the context.
 
 To remove the local browser bridge completely:
 

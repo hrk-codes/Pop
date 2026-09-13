@@ -44,9 +44,23 @@ struct CompanionPreferences {
 }
 
 fn show_main_window(app: &AppHandle) {
+    let core = app.state::<PopCore>();
+    let bridge = app.state::<server::NativeBridge>();
+    let _ = core.set_suspended(false);
+    let snapshot = core.snapshot();
+    let _ = app.emit("pop://runtime-updated", &snapshot);
+    bridge.publish_control(&snapshot);
     if let Some(window) = app.get_webview_window("avatar") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn hide_companion_windows(app: &AppHandle) {
+    for label in ["avatar", "menu", "speech"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.hide();
+        }
     }
 }
 
@@ -114,6 +128,20 @@ fn hide_surface(label: String, app: AppHandle) -> Result<(), String> {
         .ok_or("SURFACE_NOT_FOUND")?
         .hide()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn suspend_to_tray(
+    app: AppHandle,
+    core: State<'_, PopCore>,
+    bridge: State<'_, server::NativeBridge>,
+) -> Result<RuntimeSnapshot, String> {
+    core.set_suspended(true)?;
+    let snapshot = core.snapshot();
+    let _ = app.emit("pop://runtime-updated", &snapshot);
+    bridge.publish_control(&snapshot);
+    hide_companion_windows(&app);
+    Ok(snapshot)
 }
 
 fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
@@ -411,8 +439,9 @@ pub fn run() {
                 }
             });
 
-            let show_item = MenuItem::with_id(app, "show", "Show POP", true, None::<&str>)?;
-            let hide_item = MenuItem::with_id(app, "hide", "Hide POP", true, None::<&str>)?;
+            let show_item =
+                MenuItem::with_id(app, "show", "Show and resume POP", true, None::<&str>)?;
+            let hide_item = MenuItem::with_id(app, "hide", "Minimize POP", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit POP", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
             let tray_icon = app.default_window_icon().cloned().ok_or_else(|| {
@@ -426,14 +455,13 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     "hide" => {
-                        if let Some(window) = app.get_webview_window("avatar") {
-                            let _ = window.hide();
-                        }
-                        for label in ["menu", "speech"] {
-                            if let Some(window) = app.get_webview_window(label) {
-                                let _ = window.hide();
-                            }
-                        }
+                        let core = app.state::<PopCore>();
+                        let bridge = app.state::<server::NativeBridge>();
+                        let _ = core.set_suspended(true);
+                        let snapshot = core.snapshot();
+                        let _ = app.emit("pop://runtime-updated", &snapshot);
+                        bridge.publish_control(&snapshot);
+                        hide_companion_windows(app);
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -459,6 +487,7 @@ pub fn run() {
             set_monitoring,
             set_platform_permission,
             hide_surface,
+            suspend_to_tray,
             show_surface,
             toggle_surface,
             provider_health,

@@ -56,6 +56,10 @@ button {
   outline: 2px solid #72d7b0;
   outline-offset: 3px;
 }
+.avatar-button > span {
+  display: block;
+  pointer-events: none;
+}
 .pop-avatar {
   display: block;
   overflow: visible;
@@ -70,57 +74,6 @@ button {
 }
 .pop-avatar--success .pop-status {
   animation: pop-pulse 700ms ease-out;
-}
-
-.context-actions {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  pointer-events: none;
-}
-.context-action {
-  position: absolute;
-  display: inline-flex;
-  min-width: 78px;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid rgb(255 255 255 / 17%);
-  border-radius: 7px;
-  background: rgb(24 27 26 / 94%);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 24%);
-  color: #f9faf8;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
-  pointer-events: auto;
-  backdrop-filter: blur(12px);
-}
-.context-action:hover {
-  border-color: #72d7b0;
-  background: #232a27;
-}
-.context-action--up {
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-.context-action--down {
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-.context-action--left {
-  top: 50%;
-  left: 5px;
-  transform: translateY(-50%);
-}
-.context-action--right {
-  top: 50%;
-  right: 5px;
-  transform: translateY(-50%);
 }
 
 .result-dot {
@@ -252,6 +205,11 @@ button {
   min-width: 0;
   flex: 1;
   flex-direction: column;
+}
+.menu-surface > header > .window-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
 }
 .menu-surface strong {
   color: #f6f7f4;

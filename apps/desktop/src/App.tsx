@@ -2,18 +2,14 @@ import { useMachine } from '@xstate/react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  Bot,
-  Check,
   ChevronRight,
   Cloud,
   Copy,
   Eye,
   EyeOff,
-  Gauge,
   Minus,
   MessageCircle,
   Monitor,
-  MoreHorizontal,
   Palette,
   RefreshCw,
   Settings,
@@ -21,13 +17,12 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { PopAvatar } from './features/companion/PopAvatar';
 import { companionMachine, type ExpressionState } from './features/companion/machine';
 import {
   hideCurrentSurface,
-  hideSurface,
   resizeAvatarSurface,
   showSurface,
   startWindowDrag,
@@ -46,6 +41,7 @@ import {
   onRuntimeUpdate,
   requestAssistance,
   saveAvatarSize,
+  suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
   type AssistanceTask,
@@ -55,7 +51,7 @@ import {
 
 type AvatarSize = 56 | 76 | 104;
 type Direction = 'up' | 'down' | 'left' | 'right';
-type ActionItem = { label: string; task?: AssistanceTask | 'CHECK_WRITING'; icon: ReactNode };
+type ActionItem = { task?: AssistanceTask | 'CHECK_WRITING' };
 type ResultPayload = {
   requestId: string;
   output: string;
@@ -74,6 +70,8 @@ const EMPTY_RUNTIME: RuntimeSnapshot = {
   connectedAdapters: [],
   currentContext: null,
   providerConfigured: false,
+  suspended: false,
+  lastContextError: null,
 };
 
 function errorText(error: unknown): string {
@@ -85,17 +83,17 @@ function errorText(error: unknown): string {
 function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
   if (kind === 'DRAFT_TEXT') {
     return {
-      up: { label: 'Grammar', task: 'CHECK_WRITING', icon: <Check size={14} /> },
-      down: { label: 'Improve', task: 'IMPROVE_WRITING', icon: <Sparkles size={14} /> },
-      right: { label: 'Shorten', task: 'SHORTEN', icon: <Minus size={14} /> },
-      left: { label: 'More', icon: <MoreHorizontal size={14} /> },
+      up: { task: 'CHECK_WRITING' },
+      down: { task: 'IMPROVE_WRITING' },
+      right: { task: 'SHORTEN' },
+      left: {},
     };
   }
   return {
-    up: { label: 'Explain', task: 'EXPLAIN_TEXT', icon: <Bot size={14} /> },
-    down: { label: 'Reply', task: 'DRAFT_REPLY', icon: <MessageCircle size={14} /> },
-    right: { label: 'Summarize', task: 'SUMMARIZE', icon: <Gauge size={14} /> },
-    left: { label: 'More', icon: <MoreHorizontal size={14} /> },
+    up: { task: 'EXPLAIN_TEXT' },
+    down: { task: 'DRAFT_REPLY' },
+    right: { task: 'SUMMARIZE' },
+    left: {},
   };
 }
 
@@ -105,11 +103,15 @@ function AvatarSurface() {
   const [state, send] = useMachine(companionMachine);
   const [resultReady, setResultReady] = useState(false);
   const [lastTask, setLastTask] = useState<AssistanceTask | 'CHECK_WRITING' | null>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const dragging = useRef(false);
   const actions = useMemo(
     () => actionsFor(runtime.currentContext?.observation.kind),
     [runtime.currentContext?.observation.kind],
   );
-  const contextReady = Boolean(runtime.currentContext && runtime.permissions.monitoringEnabled);
+  const assistanceEnabled = Boolean(
+    runtime.permissions.monitoringEnabled && runtime.permissions.platforms.X && !runtime.suspended,
+  );
 
   const runTask = useCallback(
     async (task: AssistanceTask | 'CHECK_WRITING') => {
@@ -173,10 +175,20 @@ function AvatarSurface() {
   }, [lastTask, runTask, send]);
 
   useEffect(() => {
-    void resizeAvatarSurface(size, contextReady);
-  }, [contextReady, size]);
+    void resizeAvatarSurface(size);
+  }, [size]);
 
   function activate(direction: Direction) {
+    if (!runtime.currentContext) {
+      void showSurface('speech');
+      void emit(
+        'pop://assistance-failed',
+        runtime.connectedAdapters.includes('CHROME')
+          ? 'Select text in an X post or type in an X draft, then try again.'
+          : 'The X adapter is offline. Reload the POP extension and the X tab.',
+      );
+      return;
+    }
     if (resultReady && direction === 'left') {
       void emit('pop://navigate-result', 'previous');
       void showSurface('speech');
@@ -200,17 +212,38 @@ function AvatarSurface() {
     void saveAvatarSize(sizes[next]!);
   }
 
-  const expression: ExpressionState = runtime.permissions.monitoringEnabled
-    ? state.context.expression
-    : 'sleeping';
+  function beginPointerGesture(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    dragOrigin.current = { x: event.screenX, y: event.screenY };
+  }
+
+  function continuePointerGesture(event: React.PointerEvent<HTMLButtonElement>) {
+    const origin = dragOrigin.current;
+    if (!origin || dragging.current || (event.buttons & 1) === 0) return;
+    if (Math.hypot(event.screenX - origin.x, event.screenY - origin.y) < 5) return;
+    dragging.current = true;
+    dragOrigin.current = null;
+    void startWindowDrag().finally(() => {
+      dragging.current = false;
+    });
+  }
+
+  function endPointerGesture() {
+    dragOrigin.current = null;
+  }
+
+  const expression: ExpressionState =
+    runtime.permissions.monitoringEnabled && !runtime.suspended
+      ? state.context.expression
+      : 'sleeping';
   return (
     <main
-      className={`avatar-surface ${contextReady ? 'avatar-surface--ready' : ''}`}
+      className="avatar-surface"
       onKeyDown={(event) => {
         const direction = (
           { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
         )[event.key as 'ArrowUp'];
-        if (direction && contextReady) {
+        if (direction && assistanceEnabled) {
           event.preventDefault();
           activate(direction);
         }
@@ -218,41 +251,20 @@ function AvatarSurface() {
       onWheel={onWheel}
       tabIndex={0}
     >
-      {contextReady && (
-        <div className="context-actions" aria-label="POP actions">
-          {(Object.keys(actions) as Direction[]).map((direction) => {
-            const action = actions[direction];
-            const label =
-              resultReady && direction === 'left'
-                ? 'Previous'
-                : resultReady && direction === 'right'
-                  ? 'Next'
-                  : action.label;
-            return (
-              <button
-                className={`context-action context-action--${direction}`}
-                key={direction}
-                onClick={() => activate(direction)}
-                type="button"
-              >
-                {direction === 'left' || direction === 'right' ? null : action.icon}
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
       <button
         className="avatar-button"
         onDoubleClick={() => void toggleMenu()}
-        onPointerDown={(event) => {
-          if (event.detail === 1) void startWindowDrag();
-        }}
+        onPointerCancel={endPointerGesture}
+        onPointerDown={beginPointerGesture}
+        onPointerMove={continuePointerGesture}
+        onPointerUp={endPointerGesture}
         style={{ width: size, height: size }}
-        title="Drag POP. Double-click for settings. Scroll to resize."
+        title="POP"
         type="button"
       >
-        <PopAvatar expression={expression} size={size} />
+        <span>
+          <PopAvatar expression={expression} size={size} />
+        </span>
       </button>
       {resultReady && (
         <button
@@ -432,6 +444,20 @@ function MenuSurface() {
     },
     { id: 'app', label: 'App', icon: <Settings size={18} />, detail: 'Size and window controls' },
   ];
+  const adapterConnected = runtime.connectedAdapters.includes('CHROME');
+  const xStatus = runtime.suspended
+    ? 'Paused in the system tray'
+    : !runtime.permissions.monitoringEnabled
+      ? 'Monitoring is off'
+      : !runtime.permissions.platforms.X
+        ? 'X access is off'
+        : !adapterConnected
+          ? 'Extension bridge offline'
+          : runtime.currentContext
+            ? `${runtime.currentContext.observation.kind.replaceAll('_', ' ').toLowerCase()} ready`
+            : runtime.lastContextError
+              ? runtime.lastContextError.replaceAll('_', ' ').toLowerCase()
+              : 'Connected, waiting for X context';
   return (
     <main className="menu-surface">
       <header>
@@ -440,9 +466,14 @@ function MenuSurface() {
           <strong>POP</strong>
           <span>Private X companion</span>
         </div>
-        <button onClick={() => void hideCurrentSurface()} title="Close menu" type="button">
-          <X size={17} />
-        </button>
+        <div className="window-actions">
+          <button onClick={() => void suspendToTray()} title="Minimize POP to tray" type="button">
+            <Minus size={17} />
+          </button>
+          <button onClick={() => void hideCurrentSurface()} title="Close menu" type="button">
+            <X size={17} />
+          </button>
+        </div>
       </header>
       <div className="menu-list">
         <label className="menu-row">
@@ -465,7 +496,7 @@ function MenuSurface() {
           <MessageCircle size={18} />
           <span>
             <strong>X assistance</strong>
-            <small>Selections and drafts only</small>
+            <small>{xStatus}</small>
           </span>
           <input
             checked={runtime.permissions.platforms.X}
@@ -537,12 +568,8 @@ function MenuSurface() {
         ))}
       </div>
       <footer>
-        <span>
-          {runtime.connectedAdapters.includes('CHROME')
-            ? 'X adapter connected'
-            : 'X adapter offline'}
-        </span>
-        <button onClick={() => void hideSurface('avatar')} title="Hide POP to tray" type="button">
+        <span>{adapterConnected ? 'X adapter connected' : 'X adapter offline'}</span>
+        <button onClick={() => void suspendToTray()} title="Minimize POP to tray" type="button">
           <Minus size={16} />
         </button>
       </footer>

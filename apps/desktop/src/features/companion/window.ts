@@ -6,7 +6,7 @@ function available(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-export async function resizeAvatarSurface(size: number, interactive: boolean): Promise<void> {
+export async function resizeAvatarSurface(size: number): Promise<void> {
   if (!available()) return;
   const current = getCurrentWindow();
   const [position, dimensions, scale] = await Promise.all([
@@ -14,9 +14,7 @@ export async function resizeAvatarSurface(size: number, interactive: boolean): P
     current.outerSize(),
     current.scaleFactor(),
   ]);
-  const logical = interactive
-    ? { width: 300, height: 240 }
-    : { width: size + 40, height: size + 40 };
+  const logical = { width: size + 40, height: size + 40 };
   const center = { x: position.x + dimensions.width / 2, y: position.y + dimensions.height / 2 };
   await current.setSize(new LogicalSize(logical.width, logical.height));
   await current.setPosition(

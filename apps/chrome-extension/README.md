@@ -12,5 +12,8 @@ Load `apps\chrome-extension\dist\chrome-mv3` through `chrome://extensions`. The 
 keeps the local extension ID stable at `fpkepfajehdejjbccjaecmbmdepkaddf`; no private signing key is
 stored in the repository.
 
-The adapter sends nothing unless both Monitoring and X assistance are enabled in POP. It never posts,
-types, clicks, reads cookies, captures screenshots, or stores raw X content.
+The adapter sends nothing unless both Monitoring and X assistance are enabled in POP. Its MV3 worker
+reconnects on X messages and through a Chrome alarm, so starting POP after Chrome does not require a
+new pairing step. After rebuilding this unpacked adapter, click **Reload** on its extension card and
+reload the X tab. It never posts, types, clicks, reads cookies, captures screenshots, or stores raw X
+content.

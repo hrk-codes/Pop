@@ -8,7 +8,9 @@ export default defineContentScript({
   main() {
     let control: Control = { monitoringEnabled: false, xEnabled: false };
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let controlTimer: ReturnType<typeof setTimeout> | undefined;
     let lastFingerprint = '';
+    let lastSentAt = 0;
     let lastUrl = location.href;
     const enabled = () => control.monitoringEnabled && control.xEnabled;
 
@@ -35,8 +37,9 @@ export default defineContentScript({
       if (!enabled() || text.length < 2) return;
       const bounded = [...text].slice(0, 8000).join('');
       const fingerprint = `${kind}:${bounded}`;
-      if (fingerprint === lastFingerprint) return;
+      if (fingerprint === lastFingerprint && Date.now() - lastSentAt < 3_000) return;
       lastFingerprint = fingerprint;
+      lastSentAt = Date.now();
       const observation: ContextObservation = {
         kind,
         platformId: 'X',
@@ -67,7 +70,20 @@ export default defineContentScript({
             ? selection.anchorNode
             : selection.anchorNode.parentElement;
         emit(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
-      }, 500);
+      }, 250);
+    }
+
+    function syncControl() {
+      globalThis.clearTimeout(controlTimer);
+      void chrome.runtime
+        .sendMessage({ type: 'POP_GET_CONTROL' })
+        .then((value: Control) => {
+          control = value;
+          if (enabled()) inspect();
+        })
+        .catch(() => {
+          controlTimer = globalThis.setTimeout(syncControl, 1_000);
+        });
     }
 
     chrome.runtime.onMessage.addListener((message: unknown) => {
@@ -80,14 +96,16 @@ export default defineContentScript({
         if (!enabled()) {
           globalThis.clearTimeout(timer);
           lastFingerprint = '';
+        } else {
+          inspect();
         }
       }
     });
-    void chrome.runtime.sendMessage({ type: 'POP_GET_CONTROL' }).then((value: Control) => {
-      control = value;
-    });
+    syncControl();
     document.addEventListener('input', inspect, true);
     document.addEventListener('selectionchange', inspect);
+    document.addEventListener('mouseup', inspect, true);
+    document.addEventListener('keyup', inspect, true);
     globalThis.setInterval(() => {
       if (location.href !== lastUrl) {
         lastUrl = location.href;

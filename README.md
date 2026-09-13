@@ -8,7 +8,8 @@ preview, and let the user copy it. POP never posts, clicks, types into X, or sen
 
 - A draggable, always-on-top animated POP character with `56`, `76`, and `104` pixel sizes.
 - Operational expressions for resting, attentive, thinking, speaking, success, and blocked states.
-- Contextual Explain, Reply, Grammar, Improve, Shorten, Summarize, Previous, Next, and More controls.
+- Contextual keyboard actions for Explain, Reply, Grammar, Improve, Shorten, Summarize, Previous,
+  Next, and More without drawing controls around the mascot.
 - A compact double-click settings menu instead of a large dashboard.
 - A separate attached response bubble with streaming, copy, variants, collapse, and close controls.
 - An X-only WXT/Chrome MV3 adapter with sensitive-field blocking and short-lived context.
@@ -51,13 +52,26 @@ pnpm check
 ```
 
 `dev.ps1` builds the X adapter, registers the native host for the current Windows user, clears stale
-development processes, and starts Tauri. Chrome still requires one browser-controlled installation:
+development processes, and starts Tauri. The development terminal owns these processes, so closing
+it stops POP. For a terminal-independent personal build, run this once after `scripts\build.ps1`:
+
+```powershell
+.\scripts\start.ps1
+```
+
+The release build uses the Windows GUI subsystem, remains available through the system tray, and is
+not terminated when the launching PowerShell window closes. Chrome still requires one
+browser-controlled installation:
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Remove the old POP extension if it is installed.
-3. Choose **Load unpacked** and select `apps\chrome-extension\dist\chrome-mv3`.
+3. Choose **Load unpacked** and select `apps\chrome-extension\dist\chrome-mv3` itself, not its
+   `content-scripts` child.
 4. Confirm the extension ID is `fpkepfajehdejjbccjaecmbmdepkaddf`.
 5. Reload X once, then enable Monitoring and X assistance from POP's double-click menu.
+
+After rebuilding the adapter, use the extension card's **Reload** button and reload the X tab. The
+adapter reconnects on X activity and through a periodic MV3 alarm even when POP starts later.
 
 The Groq key belongs in the ignored root `.env` as `GROQ_API_KEY=...`. On first successful desktop
 startup POP migrates it to Windows Credential Manager. Do not commit `.env`.

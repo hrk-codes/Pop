@@ -45,7 +45,7 @@ fn same_secret(left: &str, right: &str) -> bool {
 
 fn control_message(snapshot: &RuntimeSnapshot) -> ServerMessage {
     ServerMessage::Control {
-        monitoring_enabled: snapshot.permissions.monitoring_enabled,
+        monitoring_enabled: snapshot.permissions.monitoring_enabled && !snapshot.suspended,
         x_enabled: snapshot
             .permissions
             .platforms
@@ -102,7 +102,8 @@ async fn process_envelope(
                             message: "Context was blocked by POP Core.".to_owned(),
                         },
                     )
-                    .await?
+                    .await?;
+                    let _ = app.emit("pop://runtime-updated", core.snapshot());
                 }
             }
         }
