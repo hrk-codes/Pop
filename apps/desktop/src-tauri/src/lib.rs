@@ -144,23 +144,111 @@ fn suspend_to_tray(
     Ok(snapshot)
 }
 
+fn calculate_anchor(
+    avatar: (i32, i32, u32, u32),
+    target: (u32, u32),
+    work_area: (i32, i32, u32, u32),
+) -> (i32, i32) {
+    const GAP: i32 = 8;
+    const MARGIN: i32 = 8;
+
+    let (avatar_x, avatar_y, avatar_width, avatar_height) = avatar;
+    let (target_width, target_height) = (target.0 as i32, target.1 as i32);
+    let (work_left, work_top, work_width, work_height) = work_area;
+    let work_right = work_left + work_width as i32;
+    let work_bottom = work_top + work_height as i32;
+    let avatar_right = avatar_x + avatar_width as i32;
+    let avatar_center_y = avatar_y + avatar_height as i32 / 2;
+
+    let right_candidate = avatar_right + GAP;
+    let left_candidate = avatar_x - target_width - GAP;
+    let right_fits = right_candidate + target_width <= work_right - MARGIN;
+    let left_fits = left_candidate >= work_left + MARGIN;
+    let preferred_x = if right_fits || !left_fits {
+        right_candidate
+    } else {
+        left_candidate
+    };
+
+    let min_x = work_left + MARGIN;
+    let max_x = (work_right - MARGIN - target_width).max(min_x);
+    let min_y = work_top + MARGIN;
+    let max_y = (work_bottom - MARGIN - target_height).max(min_y);
+    (
+        preferred_x.clamp(min_x, max_x),
+        (avatar_center_y - target_height / 2).clamp(min_y, max_y),
+    )
+}
+
 fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
     let avatar = app.get_webview_window("avatar").ok_or("AVATAR_NOT_FOUND")?;
     let target = app.get_webview_window(label).ok_or("SURFACE_NOT_FOUND")?;
     let origin = avatar.outer_position().map_err(|error| error.to_string())?;
     let avatar_size = avatar.outer_size().map_err(|error| error.to_string())?;
     let target_size = target.outer_size().map_err(|error| error.to_string())?;
-    let (x, y) = match label {
-        "menu" => (origin.x + avatar_size.width as i32 - 16, origin.y),
-        "speech" => (
-            origin.x + avatar_size.width as i32 - target_size.width as i32,
-            origin.y - target_size.height as i32 + 24,
+    let monitor = avatar
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or("MONITOR_NOT_FOUND")?;
+    let work_area = monitor.work_area();
+    let (x, y) = calculate_anchor(
+        (origin.x, origin.y, avatar_size.width, avatar_size.height),
+        (target_size.width, target_size.height),
+        (
+            work_area.position.x,
+            work_area.position.y,
+            work_area.size.width,
+            work_area.size.height,
         ),
-        _ => (origin.x, origin.y),
-    };
+    );
+
     target
-        .set_position(PhysicalPosition::new(x.max(0), y.max(0)))
+        .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod window_placement_tests {
+    use super::calculate_anchor;
+
+    #[test]
+    fn opens_on_the_right_when_space_is_available() {
+        assert_eq!(
+            calculate_anchor((100, 400, 116, 116), (284, 430), (0, 0, 1920, 1040)),
+            (224, 243)
+        );
+    }
+
+    #[test]
+    fn flips_left_and_clamps_inside_the_work_area_at_a_corner() {
+        assert_eq!(
+            calculate_anchor((1800, 950, 116, 116), (284, 430), (0, 0, 1920, 1040)),
+            (1508, 602)
+        );
+    }
+
+    #[test]
+    fn supports_monitors_with_negative_coordinates() {
+        assert_eq!(
+            calculate_anchor(
+                (-120, -900, 116, 116),
+                (284, 430),
+                (-1920, -1080, 1920, 1040)
+            ),
+            (-412, -1057)
+        );
+    }
+}
+
+fn reposition_visible_surfaces(app: &AppHandle) {
+    for label in ["menu", "speech"] {
+        let Some(window) = app.get_webview_window(label) else {
+            continue;
+        };
+        if window.is_visible().unwrap_or(false) {
+            let _ = anchor_surface(app, label);
+        }
+    }
 }
 
 #[tauri::command]
@@ -409,7 +497,7 @@ pub fn run() {
                     .flatten()
                     .and_then(|value| value.parse::<i32>().ok());
                 if let (Some(x), Some(y)) = (x, y) {
-                    let _ = window.set_position(PhysicalPosition::new(x.max(0), y.max(0)));
+                    let _ = window.set_position(PhysicalPosition::new(x, y));
                 }
             }
             for (label, title, width, height) in [
@@ -506,6 +594,7 @@ pub fn run() {
                     let _ = store.set_text("avatar_x", &position.x.to_string(), now_ms());
                     let _ = store.set_text("avatar_y", &position.y.to_string(), now_ms());
                 }
+                reposition_visible_surfaces(window.app_handle());
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let _ = window.hide();
