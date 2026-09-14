@@ -37,12 +37,22 @@ import {
 } from './features/companion/intent';
 import { companionMachine, type ExpressionState } from './features/companion/machine';
 import {
+  GOODBYE_MOMENT,
+  WELCOME_MOMENT,
+  nextAmbientDelayMs,
+  nextCompanionMoment,
+  responseLifetimeMs,
+  type CompanionMoment,
+  type CompanionMood,
+} from './features/companion/personality';
+import {
   SPEECH_CONTENT_INSET,
   preferredSpeechWidth,
   speechDimensions,
 } from './features/companion/speech';
 import {
   hideCurrentSurface,
+  hideSurface,
   resizeAvatarSurface,
   showSurface,
   startWindowDrag,
@@ -52,6 +62,7 @@ import {
   checkProvider,
   checkWriting,
   getCompanionPreferences,
+  getCompanionAwareness,
   getRuntimeSnapshot,
   isTauriRuntime,
   onAssistanceChunk,
@@ -62,6 +73,7 @@ import {
   requestAssistance,
   resizeSpeechSurface,
   saveAvatarSize,
+  savePersonalityEnabled,
   suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
@@ -89,6 +101,8 @@ const EMPTY_RUNTIME: RuntimeSnapshot = {
   currentContext: null,
   providerConfigured: false,
   suspended: false,
+  privacyPaused: false,
+  privacyReason: null,
   lastContextError: null,
 };
 
@@ -114,6 +128,10 @@ function errorText(error: unknown): string {
 function AvatarSurface() {
   const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
   const [size, setSize] = useState<AvatarSize>(76);
+  const [personalityEnabled, setPersonalityEnabled] = useState(true);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [ambientMood, setAmbientMood] = useState<CompanionMood | null>(null);
+  const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [state, send] = useMachine(companionMachine);
   const [resultReady, setResultReady] = useState(false);
   const lastTask = useRef<CompanionTask | null>(null);
@@ -125,16 +143,44 @@ function AvatarSurface() {
   const dragging = useRef(false);
   const activateRef = useRef<(direction: Direction) => void>(() => undefined);
   const clickTimer = useRef<number | undefined>(undefined);
+  const chatterTimer = useRef<number | undefined>(undefined);
+  const moodTimer = useRef<number | undefined>(undefined);
+  const runtimeRef = useRef(runtime);
+  const personalityEnabledRef = useRef(personalityEnabled);
+  const previousMonitoring = useRef<boolean | null>(null);
+  const lastMomentId = useRef<string | null>(null);
+  const lastWorkAt = useRef(Date.now());
   const actions = useMemo(
     () => actionsFor(runtime.currentContext?.observation.kind),
     [runtime.currentContext?.observation.kind],
   );
   const assistanceEnabled = Boolean(
-    runtime.permissions.monitoringEnabled && runtime.permissions.platforms.X && !runtime.suspended,
+    runtime.permissions.monitoringEnabled &&
+    runtime.permissions.platforms.X &&
+    !runtime.suspended &&
+    !runtime.privacyPaused,
   );
+
+  useEffect(() => {
+    runtimeRef.current = runtime;
+  }, [runtime]);
+
+  useEffect(() => {
+    personalityEnabledRef.current = personalityEnabled;
+  }, [personalityEnabled]);
+
+  const shareCompanionMoment = useCallback((moment: CompanionMoment) => {
+    if (!personalityEnabledRef.current) return;
+    lastMomentId.current = moment.id;
+    setAmbientMood(moment.mood);
+    window.clearTimeout(moodTimer.current);
+    moodTimer.current = window.setTimeout(() => setAmbientMood(null), moment.lifetimeMs);
+    void emit('pop://companion-message', moment);
+  }, []);
 
   const runTask = useCallback(
     async (task: CompanionTask) => {
+      lastWorkAt.current = Date.now();
       lastTask.current = task;
       setResultReady(false);
       send({ type: 'REQUEST' });
@@ -156,6 +202,10 @@ function AvatarSurface() {
         }
       } catch (error) {
         if (error === 'REQUEST_CANCELLED') return;
+        if (error === 'PRIVACY_GUARD_ACTIVE') {
+          await hideSurface('speech');
+          return;
+        }
         send({ type: 'FAIL' });
         const message = errorText(error);
         if (message) await emit('pop://assistance-failed', message);
@@ -168,7 +218,11 @@ function AvatarSurface() {
     if (!isTauriRuntime()) return;
     const cleanups: Array<() => void> = [];
     void getRuntimeSnapshot().then(setRuntime);
-    void getCompanionPreferences().then((preferences) => setSize(preferences.avatarSize));
+    void getCompanionPreferences().then((preferences) => {
+      setSize(preferences.avatarSize);
+      setPersonalityEnabled(preferences.personalityEnabled);
+      setPreferencesReady(true);
+    });
     void onRuntimeUpdate((snapshot) => {
       window.clearTimeout(automaticTimer.current);
       setRuntime(snapshot);
@@ -221,11 +275,98 @@ function AvatarSurface() {
         void saveAvatarSize(value);
       }
     }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<boolean>('pop://personality-updated', (value) => {
+      setPersonalityEnabled(value);
+      if (!value) setAmbientMood(null);
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen('pop://companion-now', () => {
+      shareCompanionMoment(nextCompanionMoment(lastMomentId.current));
+    }).then((cleanup) => cleanups.push(cleanup));
     return () => {
       window.clearTimeout(automaticTimer.current);
+      window.clearTimeout(moodTimer.current);
       cleanups.forEach((cleanup) => cleanup());
     };
-  }, [runTask, send]);
+  }, [runTask, send, shareCompanionMoment]);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const monitoring = runtime.permissions.monitoringEnabled && !runtime.suspended;
+    if (previousMonitoring.current === null) {
+      previousMonitoring.current = monitoring;
+      if (monitoring) shareCompanionMoment(WELCOME_MOMENT);
+    } else if (monitoring !== previousMonitoring.current) {
+      shareCompanionMoment(monitoring ? WELCOME_MOMENT : GOODBYE_MOMENT);
+      previousMonitoring.current = monitoring;
+    }
+  }, [
+    preferencesReady,
+    runtime.permissions.monitoringEnabled,
+    runtime.suspended,
+    shareCompanionMoment,
+  ]);
+
+  useEffect(() => {
+    if (!isTauriRuntime() || !personalityEnabled) return;
+    let cancelled = false;
+    const schedule = (delay: number) => {
+      window.clearTimeout(chatterTimer.current);
+      chatterTimer.current = window.setTimeout(async () => {
+        const snapshot = runtimeRef.current;
+        const eligible =
+          snapshot.permissions.monitoringEnabled &&
+          !snapshot.suspended &&
+          !snapshot.privacyPaused &&
+          !snapshot.currentContext &&
+          Date.now() - lastWorkAt.current > 120_000;
+        const awareness = eligible ? await getCompanionAwareness().catch(() => null) : null;
+        if (cancelled) return;
+        if (awareness && awareness.idleMs >= 15_000 && awareness.idleMs < 8 * 60_000) {
+          shareCompanionMoment(nextCompanionMoment(lastMomentId.current));
+          schedule(nextAmbientDelayMs());
+        } else {
+          schedule(30_000);
+        }
+      }, delay);
+    };
+    schedule(nextAmbientDelayMs());
+    return () => {
+      cancelled = true;
+      window.clearTimeout(chatterTimer.current);
+    };
+  }, [personalityEnabled, shareCompanionMoment]);
+
+  useEffect(() => {
+    if (
+      !isTauriRuntime() ||
+      !personalityEnabled ||
+      !runtime.permissions.monitoringEnabled ||
+      runtime.suspended ||
+      runtime.privacyPaused
+    ) {
+      setGaze({ x: 0, y: 0 });
+      return;
+    }
+    let polling = false;
+    const updateGaze = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const awareness = await getCompanionAwareness();
+        setGaze({ x: awareness.gazeX, y: awareness.gazeY });
+      } finally {
+        polling = false;
+      }
+    };
+    void updateGaze();
+    const timer = window.setInterval(() => void updateGaze(), 180);
+    return () => window.clearInterval(timer);
+  }, [
+    personalityEnabled,
+    runtime.permissions.monitoringEnabled,
+    runtime.privacyPaused,
+    runtime.suspended,
+  ]);
 
   useEffect(() => {
     void resizeAvatarSurface(size);
@@ -326,9 +467,14 @@ function AvatarSurface() {
     void toggleMenu();
   }
 
-  const expression: ExpressionState =
-    runtime.permissions.monitoringEnabled && !runtime.suspended
-      ? state.context.expression
+  const ambientExpression: ExpressionState | null =
+    ambientMood === 'sleepy' ? 'sleeping' : ambientMood;
+  const expression: ExpressionState = runtime.privacyPaused
+    ? 'privacy'
+    : runtime.permissions.monitoringEnabled && !runtime.suspended
+      ? ambientExpression && ['idle', 'attentive'].includes(state.context.expression)
+        ? ambientExpression
+        : state.context.expression
       : 'sleeping';
   return (
     <main className="avatar-surface" onWheel={onWheel} tabIndex={0}>
@@ -346,7 +492,7 @@ function AvatarSurface() {
         type="button"
       >
         <span>
-          <PopAvatar expression={expression} size={size} />
+          <PopAvatar expression={expression} gaze={gaze} size={size} />
         </span>
       </button>
       {resultReady && (
@@ -363,9 +509,9 @@ function AvatarSurface() {
 
 function SpeechSurface() {
   const browserPreview = !isTauriRuntime();
-  const previewText = isTauriRuntime()
-    ? ''
-    : (new URLSearchParams(location.search).get('preview') ?? '');
+  const previewParams = browserPreview ? new URLSearchParams(location.search) : null;
+  const previewText = previewParams?.get('preview') ?? '';
+  const previewCompanion = previewParams?.get('kind') === 'companion';
   const [history, setHistory] = useState<ResultPayload[]>([]);
   const [index, setIndex] = useState(0);
   const [stream, setStream] = useState('');
@@ -374,10 +520,14 @@ function SpeechSurface() {
   const [anchor, setAnchor] = useState<SpeechAnchor>({ side: 'right', tailY: 70 });
   const [measuredTextHeight, setMeasuredTextHeight] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [companionMessage, setCompanionMessage] = useState<
+    (CompanionMoment & { startedAt: number }) | null
+  >(null);
   const historyRef = useRef<ResultPayload[]>([]);
   const measureRef = useRef<HTMLParagraphElement>(null);
   const copyTimer = useRef<number | undefined>(undefined);
-  const active = stream || history[index]?.output || previewText;
+  const dismissTimer = useRef<number | undefined>(undefined);
+  const active = stream || companionMessage?.text || history[index]?.output || previewText;
   const visibleText = error || active || 'Thinking...';
   const preferredWidth = preferredSpeechWidth(visibleText);
   const dimensions = speechDimensions(visibleText, measuredTextHeight);
@@ -392,6 +542,7 @@ function SpeechSurface() {
       setStream('');
       setError(null);
       setCopied(false);
+      setCompanionMessage(null);
       setStreamMeta(payload);
       void showSurface('speech');
     }).then((cleanup) => cleanups.push(cleanup));
@@ -410,8 +561,23 @@ function SpeechSurface() {
       setStreamMeta(null);
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<string>('pop://assistance-failed', (value) => {
+      setCompanionMessage(null);
       setError(value);
       setStream('');
+      setStreamMeta(null);
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<CompanionMoment>('pop://companion-message', (value) => {
+      setCompanionMessage({ ...value, startedAt: Date.now() });
+      setError(null);
+      setStream('');
+      setStreamMeta(null);
+      void showSurface('speech');
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<boolean>('pop://personality-updated', (value) => {
+      if (!value) {
+        setCompanionMessage(null);
+        void hideCurrentSurface();
+      }
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen('pop://context-changed', () => {
       setHistory([]);
@@ -419,6 +585,7 @@ function SpeechSurface() {
       setIndex(0);
       setStream('');
       setError(null);
+      setCompanionMessage(null);
       void hideCurrentSurface();
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<'previous' | 'next'>('pop://navigate-result', (direction) => {
@@ -447,21 +614,54 @@ function SpeechSurface() {
   useEffect(
     () => () => {
       window.clearTimeout(copyTimer.current);
+      window.clearTimeout(dismissTimer.current);
     },
     [],
   );
+
+  const isCompanion = Boolean(companionMessage) || previewCompanion;
+  const speechKind = isCompanion ? 'companion' : error ? 'error' : 'task';
+  const lifetimeMs = companionMessage?.lifetimeMs ?? responseLifetimeMs(visibleText, speechKind);
+  const lifetimeKey =
+    companionMessage?.startedAt ?? history[index]?.requestId ?? error ?? streamMeta?.requestId;
+
+  const dismissSpeech = useCallback(() => {
+    setCompanionMessage(null);
+    void hideCurrentSurface();
+  }, []);
+
+  const restartDismissTimer = useCallback(() => {
+    window.clearTimeout(dismissTimer.current);
+    dismissTimer.current = window.setTimeout(dismissSpeech, lifetimeMs);
+  }, [dismissSpeech, lifetimeMs]);
+
+  useEffect(() => {
+    if (browserPreview || streamMeta || (!active && !error)) return;
+    restartDismissTimer();
+    return () => window.clearTimeout(dismissTimer.current);
+  }, [active, browserPreview, error, lifetimeKey, restartDismissTimer, streamMeta]);
 
   async function copyResponse() {
     if (!active) return;
     await navigator.clipboard.writeText(active);
     setCopied(true);
+    restartDismissTimer();
     window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopied(false), 1_400);
   }
 
-  const responseKey = streamMeta?.requestId ?? history[index]?.requestId ?? error ?? 'thinking';
+  const responseKey =
+    companionMessage?.startedAt ??
+    streamMeta?.requestId ??
+    history[index]?.requestId ??
+    error ??
+    'thinking';
   const activeTask = streamMeta?.task ?? history[index]?.task ?? '';
-  const bubbleKind = activeTask === 'DRAFT_REPLY' ? 'reply' : 'explanation';
+  const bubbleKind = isCompanion
+    ? 'companion'
+    : activeTask === 'DRAFT_REPLY'
+      ? 'reply'
+      : 'explanation';
 
   return (
     <main
@@ -487,56 +687,82 @@ function SpeechSurface() {
         className={`speech-bubble speech-bubble--${bubbleKind}`}
         aria-live="polite"
         key={responseKey}
+        onPointerEnter={() => window.clearTimeout(dismissTimer.current)}
+        onPointerLeave={restartDismissTimer}
       >
         <div className="speech-copy">
           {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
         </div>
-        <footer className="speech-actions">
-          <div className="speech-action-group">
+        {isCompanion ? (
+          <footer className="speech-actions speech-actions--companion">
+            <span className="speech-companion-label">
+              <Sparkles size={12} /> POP
+            </span>
             <button
-              aria-label="Copy response"
-              className={copied ? 'speech-action--success' : undefined}
-              disabled={!active}
-              onClick={() => void copyResponse()}
-              title={copied ? 'Copied' : 'Copy response'}
-              type="button"
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-            </button>
-            <button
-              aria-label="Generate another response"
-              onClick={() => void emit('pop://variant-requested')}
-              title="New variant"
-              type="button"
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
-          <span className="speech-position">
-            {history.length ? `${index + 1}/${history.length}` : ''}
-          </span>
-          <div className="speech-action-group">
-            <button
-              aria-label="Collapse response"
-              onClick={() => {
-                void hideCurrentSurface();
-                void emit('pop://speech-collapsed');
-              }}
-              title="Collapse response"
-              type="button"
-            >
-              <Minus size={14} />
-            </button>
-            <button
-              aria-label="Close response"
-              onClick={() => void hideCurrentSurface()}
-              title="Close response"
+              aria-label="Close message"
+              onClick={dismissSpeech}
+              title="Close message"
               type="button"
             >
               <X size={14} />
             </button>
-          </div>
-        </footer>
+          </footer>
+        ) : (
+          <footer className="speech-actions">
+            <div className="speech-action-group">
+              <button
+                aria-label="Copy response"
+                className={copied ? 'speech-action--success' : undefined}
+                disabled={!active}
+                onClick={() => void copyResponse()}
+                title={copied ? 'Copied' : 'Copy response'}
+                type="button"
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+              <button
+                aria-label="Generate another response"
+                onClick={() => {
+                  restartDismissTimer();
+                  void emit('pop://variant-requested');
+                }}
+                title="New variant"
+                type="button"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </div>
+            <span className="speech-position">
+              {history.length ? `${index + 1}/${history.length}` : ''}
+            </span>
+            <div className="speech-action-group">
+              <button
+                aria-label="Collapse response"
+                onClick={() => {
+                  void hideCurrentSurface();
+                  void emit('pop://speech-collapsed');
+                }}
+                title="Collapse response"
+                type="button"
+              >
+                <Minus size={14} />
+              </button>
+              <button
+                aria-label="Close response"
+                onClick={dismissSpeech}
+                title="Close response"
+                type="button"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </footer>
+        )}
+        <span
+          aria-hidden="true"
+          className="speech-lifetime"
+          style={{ animationDuration: `${lifetimeMs}ms` }}
+        />
       </article>
     </main>
   );
@@ -546,8 +772,12 @@ function MenuSurface() {
   const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
   const [section, setSection] = useState<string | null>(null);
   const [health, setHealth] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
+  const [personalityEnabled, setPersonalityEnabled] = useState(true);
   useEffect(() => {
     void getRuntimeSnapshot().then(setRuntime);
+    void getCompanionPreferences().then((preferences) =>
+      setPersonalityEnabled(preferences.personalityEnabled),
+    );
     let cleanup: (() => void) | undefined;
     void onRuntimeUpdate(setRuntime).then((value) => (cleanup = value));
     const onKey = (event: KeyboardEvent) => {
@@ -578,7 +808,7 @@ function MenuSurface() {
       id: 'personality',
       label: 'Personality',
       icon: <Palette size={18} />,
-      detail: 'Motion and greetings',
+      detail: personalityEnabled ? 'Playful moments on' : 'Quiet mode',
     },
     {
       id: 'privacy',
@@ -589,19 +819,21 @@ function MenuSurface() {
     { id: 'app', label: 'App', icon: <Settings size={18} />, detail: 'Size and window controls' },
   ];
   const adapterConnected = runtime.connectedAdapters.includes('CHROME');
-  const xStatus = runtime.suspended
-    ? 'Paused in the system tray'
-    : !runtime.permissions.monitoringEnabled
-      ? 'Monitoring is off'
-      : !runtime.permissions.platforms.X
-        ? 'X access is off'
-        : !adapterConnected
-          ? 'Extension bridge offline'
-          : runtime.currentContext
-            ? `${runtime.currentContext.observation.kind.replaceAll('_', ' ').toLowerCase()} ready`
-            : runtime.lastContextError
-              ? runtime.lastContextError.replaceAll('_', ' ').toLowerCase()
-              : 'Connected, waiting for X context';
+  const xStatus = runtime.privacyPaused
+    ? 'Privacy shield active'
+    : runtime.suspended
+      ? 'Paused in the system tray'
+      : !runtime.permissions.monitoringEnabled
+        ? 'Monitoring is off'
+        : !runtime.permissions.platforms.X
+          ? 'X access is off'
+          : !adapterConnected
+            ? 'Extension bridge offline'
+            : runtime.currentContext
+              ? `${runtime.currentContext.observation.kind.replaceAll('_', ' ').toLowerCase()} ready`
+              : runtime.lastContextError
+                ? runtime.lastContextError.replaceAll('_', ' ').toLowerCase()
+                : 'Connected, waiting for X context';
   return (
     <main className="menu-surface">
       <header>
@@ -626,7 +858,9 @@ function MenuSurface() {
             <strong>Monitoring</strong>
             <small>
               {runtime.permissions.monitoringEnabled
-                ? 'Ready for approved context'
+                ? runtime.privacyPaused
+                  ? 'Paused on a private surface'
+                  : 'Ready for approved context'
                 : 'POP is resting'}
             </small>
           </span>
@@ -736,19 +970,51 @@ function MenuSurface() {
                   </button>
                 )}
                 {row.id === 'personality' && (
-                  <span>
-                    <Eye size={15} />
-                    State-based expressions on
-                  </span>
+                  <>
+                    <label className="submenu-toggle">
+                      <span>
+                        <Eye size={15} />
+                        Playful check-ins
+                      </span>
+                      <input
+                        checked={personalityEnabled}
+                        onChange={(event) => {
+                          const value = event.target.checked;
+                          setPersonalityEnabled(value);
+                          void savePersonalityEnabled(value);
+                          void emit('pop://personality-updated', value);
+                        }}
+                        type="checkbox"
+                      />
+                    </label>
+                    {personalityEnabled && (
+                      <button
+                        onClick={async () => {
+                          await hideCurrentSurface();
+                          await emit('pop://companion-now');
+                        }}
+                        type="button"
+                      >
+                        <Sparkles size={15} />
+                        Speak now
+                      </button>
+                    )}
+                  </>
                 )}
                 {row.id === 'privacy' && (
-                  <button
-                    onClick={() => void updateMonitoring(false).then(setRuntime)}
-                    type="button"
-                  >
-                    <EyeOff size={15} />
-                    Stop and clear context
-                  </button>
+                  <>
+                    <span>
+                      <ShieldCheck size={15} />
+                      {runtime.privacyPaused ? 'Private surface blocked' : 'Privacy shield ready'}
+                    </span>
+                    <button
+                      onClick={() => void updateMonitoring(false).then(setRuntime)}
+                      type="button"
+                    >
+                      <EyeOff size={15} />
+                      Stop and clear context
+                    </button>
+                  </>
                 )}
                 {row.id === 'app' && (
                   <div className="size-control">

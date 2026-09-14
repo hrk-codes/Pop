@@ -30,6 +30,8 @@ export interface RuntimeSnapshot {
   currentContext: ActiveContext | null;
   providerConfigured: boolean;
   suspended: boolean;
+  privacyPaused: boolean;
+  privacyReason: string | null;
   lastContextError: string | null;
 }
 
@@ -70,6 +72,13 @@ export interface ProviderHealth {
 }
 export interface CompanionPreferences {
   avatarSize: 56 | 76 | 104;
+  personalityEnabled: boolean;
+}
+
+export interface CompanionAwareness {
+  gazeX: number;
+  gazeY: number;
+  idleMs: number;
 }
 
 export function isTauriRuntime(): boolean {
@@ -84,19 +93,31 @@ export function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
       currentContext: null,
       providerConfigured: false,
       suspended: false,
+      privacyPaused: false,
+      privacyReason: null,
       lastContextError: null,
     });
   return invoke('get_runtime_snapshot');
 }
 
 export function getCompanionPreferences(): Promise<CompanionPreferences> {
-  if (!isTauriRuntime()) return Promise.resolve({ avatarSize: 76 });
+  if (!isTauriRuntime()) return Promise.resolve({ avatarSize: 76, personalityEnabled: true });
   return invoke('get_companion_preferences');
 }
 
 export function saveAvatarSize(value: number): Promise<void> {
   if (!isTauriRuntime()) return Promise.resolve();
   return invoke('set_avatar_size', { value });
+}
+
+export function savePersonalityEnabled(value: boolean): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke('set_personality_enabled', { value });
+}
+
+export function getCompanionAwareness(): Promise<CompanionAwareness> {
+  if (!isTauriRuntime()) return Promise.resolve({ gazeX: 0, gazeY: 0, idleMs: 0 });
+  return invoke('get_companion_awareness');
 }
 
 export function updateMonitoring(value: boolean): Promise<RuntimeSnapshot> {

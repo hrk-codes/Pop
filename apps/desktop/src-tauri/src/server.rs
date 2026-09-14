@@ -63,7 +63,9 @@ fn same_secret(left: &str, right: &str) -> bool {
 
 fn control_message(snapshot: &RuntimeSnapshot) -> ServerMessage {
     ServerMessage::Control {
-        monitoring_enabled: snapshot.permissions.monitoring_enabled && !snapshot.suspended,
+        monitoring_enabled: snapshot.permissions.monitoring_enabled
+            && !snapshot.suspended
+            && !snapshot.privacy_paused,
         x_enabled: snapshot
             .permissions
             .platforms

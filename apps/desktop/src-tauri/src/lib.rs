@@ -8,7 +8,7 @@ mod security;
 mod server;
 mod storage;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use core::{PopCore, RuntimeSnapshot, now_ms};
 use grammar::WritingAnalysis;
@@ -41,6 +41,15 @@ struct ProviderHealth {
 #[serde(rename_all = "camelCase")]
 struct CompanionPreferences {
     avatar_size: u16,
+    personality_enabled: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompanionAwareness {
+    gaze_x: f64,
+    gaze_y: f64,
+    idle_ms: u64,
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -64,6 +73,14 @@ fn hide_companion_windows(app: &AppHandle) {
     }
 }
 
+fn hide_context_windows(app: &AppHandle) {
+    for label in ["menu", "speech"] {
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.hide();
+        }
+    }
+}
+
 #[tauri::command]
 fn get_runtime_snapshot(core: State<'_, PopCore>) -> RuntimeSnapshot {
     core.snapshot()
@@ -72,14 +89,20 @@ fn get_runtime_snapshot(core: State<'_, PopCore>) -> RuntimeSnapshot {
 #[tauri::command]
 fn get_companion_preferences(core: State<'_, PopCore>) -> Result<CompanionPreferences, String> {
     let store = core.store();
+    let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
     let size = store
-        .lock()
-        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
         .text_setting("avatar_size")?
         .and_then(|value| value.parse::<u16>().ok())
         .filter(|value| matches!(value, 56 | 76 | 104))
         .unwrap_or(76);
-    Ok(CompanionPreferences { avatar_size: size })
+    let personality_enabled = store
+        .text_setting("personality_enabled")?
+        .map(|value| value == "true")
+        .unwrap_or(true);
+    Ok(CompanionPreferences {
+        avatar_size: size,
+        personality_enabled,
+    })
 }
 
 #[tauri::command]
@@ -91,6 +114,32 @@ fn set_avatar_size(value: u16, core: State<'_, PopCore>) -> Result<(), String> {
         .lock()
         .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
         .set_text("avatar_size", &value.to_string(), now_ms())
+}
+
+#[tauri::command]
+fn set_personality_enabled(value: bool, core: State<'_, PopCore>) -> Result<(), String> {
+    core.store()
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .set_bool("personality_enabled", value, now_ms())
+}
+
+#[tauri::command]
+fn get_companion_awareness(app: AppHandle) -> Result<CompanionAwareness, String> {
+    let avatar = app.get_webview_window("avatar").ok_or("AVATAR_NOT_FOUND")?;
+    let origin = avatar.outer_position().map_err(|error| error.to_string())?;
+    let window_size = avatar.outer_size().map_err(|error| error.to_string())?;
+    let scale = avatar.scale_factor().map_err(|error| error.to_string())?;
+    let bounds = visible_avatar_bounds(origin, window_size, scale);
+    let center_x = bounds.0 as f64 + bounds.2 as f64 / 2.0;
+    let center_y = bounds.1 as f64 + bounds.3 as f64 / 2.0;
+    let (cursor_x, cursor_y) =
+        foreground::cursor_position().unwrap_or((center_x as i32, center_y as i32));
+    Ok(CompanionAwareness {
+        gaze_x: ((cursor_x as f64 - center_x) / 420.0).clamp(-1.0, 1.0),
+        gaze_y: ((cursor_y as f64 - center_y) / 300.0).clamp(-1.0, 1.0),
+        idle_ms: foreground::idle_ms(),
+    })
 }
 
 #[tauri::command]
@@ -603,9 +652,15 @@ pub fn run() {
 
             let server_core = core.clone();
             let server_app = app.handle().clone();
+            let server_bridge = bridge.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) =
-                    server::run(server_core, server_app.clone(), native_secret, bridge).await
+                if let Err(error) = server::run(
+                    server_core,
+                    server_app.clone(),
+                    native_secret,
+                    server_bridge,
+                )
+                .await
                 {
                     let _ = server_app.emit("pop://runtime-error", error);
                 }
@@ -617,6 +672,33 @@ pub fn run() {
                 if let Err(error) = server::run_loopback(loopback_core, loopback_app.clone()).await
                 {
                     let _ = loopback_app.emit("pop://runtime-error", error);
+                }
+            });
+
+            let privacy_core = core.clone();
+            let privacy_app = app.handle().clone();
+            let privacy_bridge = bridge.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_millis(600));
+                loop {
+                    interval.tick().await;
+                    let current = privacy_core.snapshot();
+                    let should_watch = current.permissions.monitoring_enabled && !current.suspended;
+                    let reason = should_watch
+                        .then(foreground::privacy_guard_reason)
+                        .flatten();
+                    let active = reason.is_some();
+                    if privacy_core
+                        .set_privacy_guard(active, reason)
+                        .unwrap_or(false)
+                    {
+                        let snapshot = privacy_core.snapshot();
+                        if snapshot.privacy_paused {
+                            hide_context_windows(&privacy_app);
+                        }
+                        let _ = privacy_app.emit("pop://runtime-updated", &snapshot);
+                        privacy_bridge.publish_control(&snapshot);
+                    }
                 }
             });
 
@@ -665,6 +747,8 @@ pub fn run() {
             get_runtime_snapshot,
             get_companion_preferences,
             set_avatar_size,
+            set_personality_enabled,
+            get_companion_awareness,
             set_monitoring,
             set_platform_permission,
             hide_surface,

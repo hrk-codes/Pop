@@ -8,7 +8,7 @@ use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    foreground::foreground_application_id,
+    foreground::{foreground_application_id, privacy_guard_reason},
     protocol::{AdapterSource, ContextKind, ContextObservation, PlatformId},
     security::contains_likely_secret,
     storage::Store,
@@ -62,6 +62,8 @@ pub struct RuntimeSnapshot {
     pub current_context: Option<ActiveContext>,
     pub provider_configured: bool,
     pub suspended: bool,
+    pub privacy_paused: bool,
+    pub privacy_reason: Option<String>,
     pub last_context_error: Option<String>,
 }
 
@@ -70,6 +72,8 @@ struct RuntimeState {
     connected_adapters: HashMap<AdapterSource, usize>,
     current_context: Option<ActiveContext>,
     suspended: bool,
+    privacy_paused: bool,
+    privacy_reason: Option<String>,
     last_context_error: Option<String>,
 }
 
@@ -104,6 +108,8 @@ impl PopCore {
                 connected_adapters: HashMap::new(),
                 current_context: None,
                 suspended: false,
+                privacy_paused: false,
+                privacy_reason: None,
                 last_context_error: None,
             })),
             store: Arc::new(Mutex::new(store)),
@@ -168,6 +174,10 @@ impl PopCore {
         source: AdapterSource,
         observation: ContextObservation,
     ) -> Result<(), &'static str> {
+        if privacy_guard_reason().is_some() {
+            let _ = self.set_privacy_guard(true, Some("PRIVATE_SURFACE".to_owned()));
+            return Err("PRIVACY_GUARD_ACTIVE");
+        }
         if contains_likely_secret(&observation.text) {
             return Err("SENSITIVE_CONTEXT_BLOCKED");
         }
@@ -192,6 +202,9 @@ impl PopCore {
         let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
         if state.suspended {
             return Err("POP_SUSPENDED");
+        }
+        if state.privacy_paused {
+            return Err("PRIVACY_GUARD_ACTIVE");
         }
         if !state.permissions.monitoring_enabled {
             return Err("MONITORING_DISABLED");
@@ -235,8 +248,29 @@ impl PopCore {
         Ok(())
     }
 
+    pub fn set_privacy_guard(&self, active: bool, reason: Option<String>) -> Result<bool, String> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| "CORE_STATE_UNAVAILABLE".to_owned())?;
+        let normalized_reason =
+            active.then(|| reason.unwrap_or_else(|| "PRIVATE_SURFACE".to_owned()));
+        let changed = state.privacy_paused != active || state.privacy_reason != normalized_reason;
+        state.privacy_paused = active;
+        state.privacy_reason = normalized_reason;
+        if active {
+            state.current_context = None;
+            state.last_context_error = None;
+            self.cancel_generation();
+        }
+        Ok(changed)
+    }
+
     pub fn fresh_context(&self) -> Result<ActiveContext, &'static str> {
         let mut state = self.state.write().map_err(|_| "CORE_STATE_UNAVAILABLE")?;
+        if state.privacy_paused {
+            return Err("PRIVACY_GUARD_ACTIVE");
+        }
         let Some(context) = state.current_context.clone() else {
             return Err("NO_CONTEXT");
         };
@@ -259,6 +293,8 @@ impl PopCore {
         state.permissions.monitoring_enabled = value;
         if !value {
             state.current_context = None;
+            state.privacy_paused = false;
+            state.privacy_reason = None;
             self.cancel_generation();
         }
         Ok(())
@@ -306,6 +342,8 @@ impl PopCore {
             current_context: state.current_context.clone(),
             provider_configured: self.provider_configured,
             suspended: state.suspended,
+            privacy_paused: state.privacy_paused,
+            privacy_reason: state.privacy_reason.clone(),
             last_context_error: state.last_context_error.clone(),
         }
     }

@@ -72,6 +72,9 @@ button {
 .pop-avatar--sleeping {
   filter: saturate(0.72);
 }
+.pop-avatar--privacy {
+  filter: saturate(0.62) brightness(0.92);
+}
 .pop-avatar--success .pop-status {
   animation: pop-pulse 700ms ease-out;
 }
@@ -146,6 +149,17 @@ button {
 }
 .speech-bubble--reply::before {
   background: #ff6b61;
+}
+.speech-bubble--companion {
+  border-color: rgb(114 215 176 / 25%);
+  background: rgb(19 24 22 / 98%);
+  box-shadow:
+    0 18px 50px rgb(0 0 0 / 42%),
+    0 0 0 1px rgb(114 215 176 / 4%);
+}
+.speech-bubble--companion::before {
+  width: 42px;
+  background: #ffbf69;
 }
 .speech-surface--tail-left .speech-bubble {
   animation-name: speech-flow-in-left;
@@ -250,6 +264,44 @@ button {
 }
 .speech-actions .speech-action--success {
   color: #72d7b0;
+}
+.speech-actions--companion {
+  color: #8f9892;
+}
+.speech-companion-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 6px;
+  color: #aeb8b1;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.speech-companion-label svg {
+  color: #ffbf69;
+}
+.speech-lifetime {
+  position: absolute;
+  z-index: 5;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #72d7b0;
+  opacity: 0.55;
+  pointer-events: none;
+  transform-origin: left;
+  animation: speech-lifetime linear forwards;
+}
+.speech-bubble--reply .speech-lifetime {
+  background: #ff6b61;
+}
+.speech-bubble--companion .speech-lifetime {
+  background: #ffbf69;
+}
+.speech-bubble:hover .speech-lifetime {
+  animation-play-state: paused;
 }
 .speech-position {
   min-width: 30px;
@@ -397,6 +449,25 @@ button {
   gap: 7px;
   padding: 7px 8px;
 }
+.submenu > .submenu-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+}
+.submenu-toggle > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.submenu-toggle input {
+  width: 34px;
+  height: 19px;
+  accent-color: #36b88a;
+  cursor: pointer;
+}
 .context-actions {
   flex-wrap: wrap;
 }
@@ -435,6 +506,15 @@ button {
   46%,
   47% {
     transform: scaleY(0.08);
+  }
+}
+
+@keyframes speech-lifetime {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
   }
 }
 @keyframes pop-pulse {

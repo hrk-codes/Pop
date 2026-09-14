@@ -7,6 +7,9 @@ export type ExpressionState =
   | 'thinking'
   | 'speaking'
   | 'success'
+  | 'playful'
+  | 'curious'
+  | 'encouraging'
   | 'uncertain'
   | 'blocked'
   | 'privacy';
