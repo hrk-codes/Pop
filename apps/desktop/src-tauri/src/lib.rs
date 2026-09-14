@@ -16,8 +16,8 @@ use groq::{AssistanceResponse, GroqProvider};
 use serde::Serialize;
 use storage::{LearnedHabit, Store};
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
+    WebviewWindowBuilder, WindowEvent,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
@@ -204,7 +204,25 @@ fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
 
     target
         .set_position(PhysicalPosition::new(x, y))
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    if label == "speech" {
+        let side = if x >= origin.x + avatar_size.width as i32 {
+            "left"
+        } else {
+            "right"
+        };
+        let scale = target.scale_factor().unwrap_or(1.0);
+        let avatar_center_y = origin.y + avatar_size.height as i32 / 2;
+        let tail_y = ((avatar_center_y - y) as f64 / scale)
+            .clamp(24.0, (target_size.height as f64 / scale - 24.0).max(24.0));
+        let _ = target.emit(
+            "pop://surface-anchor",
+            serde_json::json!({ "side": side, "tailY": tail_y }),
+        );
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -258,6 +276,36 @@ fn show_surface(label: String, app: AppHandle) -> Result<(), String> {
         .ok_or("SURFACE_NOT_FOUND")?
         .show()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn resize_speech_surface(width: f64, height: f64, app: AppHandle) -> Result<(), String> {
+    if !width.is_finite()
+        || !height.is_finite()
+        || !(260.0..=540.0).contains(&width)
+        || !(108.0..=700.0).contains(&height)
+    {
+        return Err("INVALID_SPEECH_SIZE".to_owned());
+    }
+    let window = app
+        .get_webview_window("speech")
+        .ok_or("SURFACE_NOT_FOUND")?;
+    let monitor = app
+        .get_webview_window("avatar")
+        .ok_or("AVATAR_NOT_FOUND")?
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or("MONITOR_NOT_FOUND")?;
+    let scale = monitor.scale_factor();
+    let max_width = (monitor.work_area().size.width as f64 / scale - 24.0).max(260.0);
+    let max_height = (monitor.work_area().size.height as f64 / scale - 24.0).max(108.0);
+    window
+        .set_size(LogicalSize::new(
+            width.min(max_width),
+            height.min(max_height),
+        ))
+        .map_err(|error| error.to_string())?;
+    anchor_surface(&app, "speech")
 }
 
 #[tauri::command]
@@ -327,10 +375,14 @@ async fn check_writing(core: State<'_, PopCore>) -> Result<WritingAnalysis, Stri
 async fn run_assistance(
     task: String,
     tone: String,
+    variant: u8,
     app: AppHandle,
     core: State<'_, PopCore>,
     provider: State<'_, ProviderState>,
 ) -> Result<AssistanceResponse, String> {
+    if variant > 20 {
+        return Err("INVALID_VARIANT".to_owned());
+    }
     if !matches!(
         tone.as_str(),
         "natural" | "concise" | "friendly" | "professional"
@@ -362,6 +414,7 @@ async fn run_assistance(
             &task,
             &tone,
             &context.observation.text,
+            variant,
             cancellation,
             move |delta| {
                 let _ = stream_app.emit(
@@ -586,6 +639,7 @@ pub fn run() {
             hide_surface,
             suspend_to_tray,
             show_surface,
+            resize_speech_surface,
             toggle_surface,
             provider_health,
             check_writing,

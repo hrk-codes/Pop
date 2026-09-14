@@ -6,6 +6,7 @@ export function PopAvatar({ expression, size }: { expression: ExpressionState; s
   const sleeping = expression === 'sleeping';
   const uncertain = expression === 'uncertain' || expression === 'blocked';
   const happy = expression === 'success';
+  const thinking = expression === 'thinking';
   const speaking = expression === 'speaking';
 
   return (
@@ -70,9 +71,11 @@ export function PopAvatar({ expression, size }: { expression: ExpressionState; s
               ? ['M49 78 Q60 86 71 78', 'M53 78 Q60 91 67 78', 'M49 78 Q60 86 71 78']
               : happy
                 ? 'M47 76 Q60 91 73 76'
-                : uncertain
-                  ? 'M51 82 Q60 76 69 82'
-                  : 'M51 78 Q60 87 69 78',
+                : thinking
+                  ? 'M55 81 Q60 76 65 81'
+                  : uncertain
+                    ? 'M51 82 Q60 76 69 82'
+                    : 'M51 78 Q60 87 69 78',
           }}
           fill="none"
           stroke="#292b2a"

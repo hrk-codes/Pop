@@ -77,8 +77,21 @@ export default defineContentScript({
               : selection.anchorNode.parentElement;
           emit(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
         },
-        candidate ? 850 : 550,
+        candidate ? 650 : 180,
       );
+    }
+
+    function requestAction(direction: 'up' | 'down' | 'left' | 'right') {
+      const message = { type: 'POP_ACTION' as const, direction };
+      if (bridge) {
+        try {
+          bridge.postMessage(message);
+          return;
+        } catch {
+          bridge = null;
+        }
+      }
+      void chrome.runtime.sendMessage(message).catch(() => connectBridge());
     }
 
     function applyControl(value: Control) {
@@ -171,6 +184,39 @@ export default defineContentScript({
       'keyup',
       (event) => {
         void refreshControl().then(() => inspect(event));
+      },
+      true,
+    );
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          !enabled() ||
+          event.defaultPrevented ||
+          event.repeat ||
+          event.isComposing ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey ||
+          editable(event.target) ||
+          editable(document.activeElement)
+        ) {
+          return;
+        }
+        const direction = (
+          {
+            ArrowUp: 'up',
+            ArrowDown: 'down',
+            ArrowLeft: 'left',
+            ArrowRight: 'right',
+          } as const
+        )[event.key as 'ArrowUp'];
+        const selectedText = window.getSelection()?.toString().trim() ?? '';
+        if (!direction || selectedText.length < 2) return;
+        event.preventDefault();
+        event.stopPropagation();
+        requestAction(direction);
       },
       true,
     );

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u8 = 3;
+pub const PROTOCOL_VERSION: u8 = 4;
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 pub const MAX_CONTEXT_CHARS: usize = 8_000;
 
@@ -92,6 +92,10 @@ pub struct ContextObservation {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UiCommand {
     Show,
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,7 +170,7 @@ mod tests {
     #[test]
     fn deserializes_chrome_context_envelope() {
         let envelope: ProtocolEnvelope = serde_json::from_value(serde_json::json!({
-            "version": 3,
+            "version": 4,
             "id": "d9428888-122b-11e1-b85c-61cd3cbb3210",
             "source": "CHROME",
             "type": "CONTEXT",
@@ -183,6 +187,22 @@ mod tests {
         .expect("Chrome context should deserialize");
 
         assert!(matches!(envelope.message, EnvelopePayload::Context(_)));
+        assert!(envelope.validate().is_ok());
+    }
+
+    #[test]
+    fn deserializes_browser_arrow_command() {
+        let envelope: ProtocolEnvelope = serde_json::from_value(serde_json::json!({
+            "version": 4,
+            "id": "d9428888-122b-11e1-b85c-61cd3cbb3210",
+            "source": "CHROME",
+            "type": "UI_COMMAND",
+            "timestamp": 1_725_000_000_000_u64,
+            "payload": { "command": "DOWN" }
+        }))
+        .expect("Chrome arrow command should deserialize");
+
+        assert!(matches!(envelope.message, EnvelopePayload::UiCommand(_)));
         assert!(envelope.validate().is_ok());
     }
 

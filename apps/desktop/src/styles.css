@@ -94,7 +94,7 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 9px 10px 15px;
+  padding: 9px 12px;
 }
 .speech-bubble {
   display: flex;
@@ -107,30 +107,42 @@ button {
   background: rgb(28 31 30 / 96%);
   box-shadow: 0 14px 35px rgb(0 0 0 / 30%);
   backdrop-filter: blur(18px);
+  animation: speech-flow-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.speech-surface--tail-left .speech-bubble {
+  animation-name: speech-flow-in-left;
 }
 .speech-tail {
   position: absolute;
   z-index: 2;
-  right: 26px;
-  bottom: 3px;
-  width: 22px;
-  height: 22px;
-  border-right: 1px solid rgb(255 255 255 / 16%);
-  border-bottom: 1px solid rgb(255 255 255 / 16%);
+  top: var(--speech-tail-y, 70px);
+  width: 18px;
+  height: 18px;
   background: #1c1f1e;
-  transform: rotate(45deg);
+  transform: translateY(-50%) rotate(45deg);
+}
+.speech-surface--tail-left .speech-tail {
+  left: 4px;
+  border-bottom: 1px solid rgb(255 255 255 / 16%);
+  border-left: 1px solid rgb(255 255 255 / 16%);
+}
+.speech-surface--tail-right .speech-tail {
+  right: 4px;
+  border-top: 1px solid rgb(255 255 255 / 16%);
+  border-right: 1px solid rgb(255 255 255 / 16%);
 }
 .speech-copy {
   flex: 1;
   min-height: 0;
   padding: 18px 18px 10px;
-  overflow-y: auto;
+  overflow: visible;
 }
 .speech-copy p {
   margin: 0;
   color: #f8f8f4;
   font-size: 15px;
   line-height: 1.48;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 .speech-copy span {
@@ -141,6 +153,26 @@ button {
 }
 .speech-copy .speech-error {
   color: #ffd0cb;
+}
+@keyframes speech-flow-in {
+  from {
+    opacity: 0;
+    transform: translateX(7px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes speech-flow-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-7px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
 }
 .speech-bubble footer {
   position: relative;

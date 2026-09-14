@@ -122,8 +122,17 @@ export function checkWriting(): Promise<WritingAnalysis> {
   return invoke('check_writing');
 }
 
-export function requestAssistance(task: AssistanceTask, tone: string): Promise<AssistanceResponse> {
-  return invoke('run_assistance', { task, tone });
+export function requestAssistance(
+  task: AssistanceTask,
+  tone: string,
+  variant: number,
+): Promise<AssistanceResponse> {
+  return invoke('run_assistance', { task, tone, variant });
+}
+
+export function resizeSpeechSurface(width: number, height: number): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke('resize_speech_surface', { width, height });
 }
 
 export function onRuntimeUpdate(handler: (snapshot: RuntimeSnapshot) => void): Promise<UnlistenFn> {

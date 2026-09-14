@@ -17,7 +17,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { PopAvatar } from './features/companion/PopAvatar';
 import {
@@ -27,6 +27,7 @@ import {
   type Direction,
 } from './features/companion/intent';
 import { companionMachine, type ExpressionState } from './features/companion/machine';
+import { speechDimensions } from './features/companion/speech';
 import {
   hideCurrentSurface,
   resizeAvatarSurface,
@@ -46,6 +47,7 @@ import {
   onCloudActivity,
   onRuntimeUpdate,
   requestAssistance,
+  resizeSpeechSurface,
   saveAvatarSize,
   suspendToTray,
   updateMonitoring,
@@ -61,6 +63,7 @@ type ResultPayload = {
   provider: string;
   model: string;
 };
+type SpeechAnchor = { side: 'left' | 'right'; tailY: number };
 
 function appListen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   if (!isTauriRuntime()) return Promise.resolve(() => undefined);
@@ -77,9 +80,22 @@ const EMPTY_RUNTIME: RuntimeSnapshot = {
 };
 
 function errorText(error: unknown): string {
-  return typeof error === 'string'
-    ? error.replaceAll('_', ' ').toLowerCase()
-    : 'POP could not complete that request.';
+  if (typeof error !== 'string') return "I couldn't finish that thought. Try the same arrow again.";
+  const friendly: Record<string, string> = {
+    GROQ_RESPONSE_EMPTY: 'I lost that thought before I could say it. Try the same arrow again.',
+    GROQ_REQUEST_FAILED:
+      "I couldn't reach the writing service. I'll be ready when the connection is back.",
+    GROQ_STREAM_INVALID: 'The response was interrupted. Try the same arrow once more.',
+    GROQ_STREAM_CHUNK_INVALID: 'The response was interrupted. Try the same arrow once more.',
+    REQUEST_CANCELLED: '',
+    STALE_CONTEXT: 'That selection expired. Select it again and I will pick it up.',
+    TASK_CONTEXT_MISMATCH: 'That selection changed. Select the text again, then use the arrow.',
+  };
+  if (friendly[error] !== undefined) return friendly[error];
+  if (error.startsWith('GROQ_REQUEST_')) {
+    return "The writing service didn't accept that request. Try again in a moment.";
+  }
+  return "I couldn't finish that thought. Try the same arrow again.";
 }
 
 function AvatarSurface() {
@@ -90,6 +106,8 @@ function AvatarSurface() {
   const lastTask = useRef<CompanionTask | null>(null);
   const automaticTimer = useRef<number | undefined>(undefined);
   const automaticFingerprint = useRef('');
+  const contextFingerprint = useRef('');
+  const variantCounts = useRef<Partial<Record<CompanionTask, number>>>({});
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   const activateRef = useRef<(direction: Direction) => void>(() => undefined);
@@ -119,11 +137,15 @@ function AvatarSurface() {
             model: result.engine,
           });
         } else {
-          await requestAssistance(task, 'natural');
+          const variant = variantCounts.current[task] ?? 0;
+          variantCounts.current[task] = (variant + 1) % 21;
+          await requestAssistance(task, 'natural', variant);
         }
       } catch (error) {
+        if (error === 'REQUEST_CANCELLED') return;
         send({ type: 'FAIL' });
-        await emit('pop://assistance-failed', errorText(error));
+        const message = errorText(error);
+        if (message) await emit('pop://assistance-failed', message);
       }
     },
     [send],
@@ -138,14 +160,21 @@ function AvatarSurface() {
       window.clearTimeout(automaticTimer.current);
       setRuntime(snapshot);
       setResultReady(false);
-      void emit('pop://context-changed');
       send(snapshot.currentContext ? { type: 'CONTEXT_READY' } : { type: 'RESET' });
       const context = snapshot.currentContext;
       if (!context) {
+        if (contextFingerprint.current) void emit('pop://context-changed');
+        contextFingerprint.current = '';
+        variantCounts.current = {};
         automaticFingerprint.current = '';
         return;
       }
       const fingerprint = `${context.observation.kind}:${context.observation.text}`;
+      if (fingerprint !== contextFingerprint.current) {
+        contextFingerprint.current = fingerprint;
+        variantCounts.current = {};
+        void emit('pop://context-changed');
+      }
       const task = automaticTaskFor(context.observation.kind);
       const enabled =
         snapshot.permissions.monitoringEnabled &&
@@ -153,7 +182,7 @@ function AvatarSurface() {
         !snapshot.suspended;
       if (enabled && task && fingerprint !== automaticFingerprint.current) {
         automaticFingerprint.current = fingerprint;
-        automaticTimer.current = window.setTimeout(() => void runTask(task), 650);
+        automaticTimer.current = window.setTimeout(() => void runTask(task), 180);
       }
     }).then((cleanup) => cleanups.push(cleanup));
     void onCloudActivity((active) => send({ type: active ? 'REQUEST' : 'STREAM_END' })).then(
@@ -325,8 +354,11 @@ function SpeechSurface() {
   const [stream, setStream] = useState('');
   const [streamMeta, setStreamMeta] = useState<Omit<ResultPayload, 'output'> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [anchor, setAnchor] = useState<SpeechAnchor>({ side: 'right', tailY: 70 });
   const historyRef = useRef<ResultPayload[]>([]);
   const active = stream || history[index]?.output || '';
+  const visibleText = error || active || 'Thinking...';
+  const dimensions = speechDimensions(visibleText);
 
   useEffect(() => {
     historyRef.current = history;
@@ -374,20 +406,27 @@ function SpeechSurface() {
         return current;
       });
     }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<SpeechAnchor>('pop://surface-anchor', setAnchor).then((cleanup) =>
+      cleanups.push(cleanup),
+    );
     return () => cleanups.forEach((cleanup) => cleanup());
   }, []);
 
+  useEffect(() => {
+    void resizeSpeechSurface(dimensions.width, dimensions.height);
+  }, [dimensions.height, dimensions.width]);
+
+  const responseKey = streamMeta?.requestId ?? history[index]?.requestId ?? error ?? 'thinking';
+
   return (
-    <main className="speech-surface">
+    <main
+      className={`speech-surface speech-surface--tail-${anchor.side}`}
+      style={{ '--speech-tail-y': `${anchor.tailY}px` } as CSSProperties}
+    >
       <div className="speech-tail" />
-      <article className="speech-bubble" aria-live="polite">
+      <article className="speech-bubble" aria-live="polite" key={responseKey}>
         <div className="speech-copy">
           {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
-          {streamMeta && (
-            <span>
-              {streamMeta.provider} · {streamMeta.model}
-            </span>
-          )}
         </div>
         <footer>
           <button

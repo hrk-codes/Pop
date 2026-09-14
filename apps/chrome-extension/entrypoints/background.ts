@@ -6,7 +6,9 @@ import {
 } from '../utils/loopback';
 
 type ContentMessage =
-  { type: 'POP_CONTEXT'; observation: ContextObservation } | { type: 'POP_GET_CONTROL' };
+  | { type: 'POP_CONTEXT'; observation: ContextObservation }
+  | { type: 'POP_ACTION'; direction: 'up' | 'down' | 'left' | 'right' }
+  | { type: 'POP_GET_CONTROL' };
 type PopupMessage = { type: 'POP_LOOPBACK_GRANTED'; control: Control } | { type: 'POP_SHOW' };
 type Transport = 'native' | 'loopback' | null;
 
@@ -172,6 +174,20 @@ export default defineBackground(() => {
       control.xEnabled
     ) {
       send(envelope({ type: 'CONTEXT', payload: message.observation }));
+      return;
+    }
+    if (
+      message.type === 'POP_ACTION' &&
+      senderUrl?.startsWith('https://x.com/') &&
+      control.monitoringEnabled &&
+      control.xEnabled
+    ) {
+      send(
+        envelope({
+          type: 'UI_COMMAND',
+          payload: { command: message.direction.toUpperCase() as 'UP' | 'DOWN' | 'LEFT' | 'RIGHT' },
+        }),
+      );
     }
   }
 
@@ -187,7 +203,11 @@ export default defineBackground(() => {
         send(envelope({ type: 'UI_COMMAND', payload: { command: 'SHOW' } }));
         return false;
       }
-      if (message.type === 'POP_GET_CONTROL' || message.type === 'POP_CONTEXT') {
+      if (
+        message.type === 'POP_GET_CONTROL' ||
+        message.type === 'POP_CONTEXT' ||
+        message.type === 'POP_ACTION'
+      ) {
         handleContentMessage(message, sender.tab?.url, respond);
         return message.type === 'POP_GET_CONTROL';
       }

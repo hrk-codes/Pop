@@ -31,7 +31,7 @@ export function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
 
 export function automaticTaskFor(kind?: ContextKind): CompanionTask | null {
   if (kind === 'DRAFT_TEXT') return 'CHECK_WRITING';
-  if (kind === 'SOCIAL_POST') return 'DRAFT_REPLY';
-  if (kind === 'ARTICLE_TEXT' || kind === 'SELECTED_TEXT') return 'EXPLAIN_TEXT';
+  if (kind === 'SOCIAL_POST' || kind === 'ARTICLE_TEXT' || kind === 'SELECTED_TEXT')
+    return 'EXPLAIN_TEXT';
   return null;
 }

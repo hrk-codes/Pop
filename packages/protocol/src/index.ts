@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 3 as const;
+export const PROTOCOL_VERSION = 4 as const;
 
 export const adapterSourceSchema = z.enum(['CHROME', 'VSCODE']);
 export type AdapterSource = z.infer<typeof adapterSourceSchema>;
@@ -54,7 +54,7 @@ export const protocolEnvelopeSchema = z.discriminatedUnion('type', [
     source: adapterSourceSchema,
     type: z.literal('UI_COMMAND'),
     timestamp: z.number().int().positive(),
-    payload: z.object({ command: z.literal('SHOW') }),
+    payload: z.object({ command: z.enum(['SHOW', 'UP', 'DOWN', 'LEFT', 'RIGHT']) }),
   }),
   z.object({
     version: z.literal(PROTOCOL_VERSION),

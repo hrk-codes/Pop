@@ -55,4 +55,17 @@ describe('protocol envelope', () => {
 
     expect(envelope.type).toBe('HEARTBEAT');
   });
+
+  it('accepts an arrow action from the approved adapter', () => {
+    const envelope = parseProtocolEnvelope({
+      version: PROTOCOL_VERSION,
+      id: crypto.randomUUID(),
+      source: 'CHROME',
+      type: 'UI_COMMAND',
+      timestamp: 1,
+      payload: { command: 'DOWN' },
+    });
+
+    expect(envelope.type).toBe('UI_COMMAND');
+  });
 });

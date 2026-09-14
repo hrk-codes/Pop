@@ -5,7 +5,7 @@ import { actionsFor, automaticTaskFor } from './intent';
 describe('POP intent routing', () => {
   it('automatically chooses an action that matches each context', () => {
     expect(automaticTaskFor('DRAFT_TEXT')).toBe('CHECK_WRITING');
-    expect(automaticTaskFor('SOCIAL_POST')).toBe('DRAFT_REPLY');
+    expect(automaticTaskFor('SOCIAL_POST')).toBe('EXPLAIN_TEXT');
     expect(automaticTaskFor('SELECTED_TEXT')).toBe('EXPLAIN_TEXT');
     expect(automaticTaskFor('ARTICLE_TEXT')).toBe('EXPLAIN_TEXT');
   });

@@ -113,10 +113,33 @@ fn process_envelope(envelope: ProtocolEnvelope, core: &PopCore, app: &AppHandle)
             }
         }
         EnvelopePayload::UiCommand(payload) => {
-            let crate::protocol::UiCommand::Show = payload.command;
-            if let Some(window) = app.get_webview_window("avatar") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            match payload.command {
+                crate::protocol::UiCommand::Show => {
+                    if let Some(window) = app.get_webview_window("avatar") {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                command => {
+                    let snapshot = core.snapshot();
+                    if !snapshot.permissions.monitoring_enabled
+                        || !snapshot.permissions.allows(crate::protocol::PlatformId::X)
+                        || snapshot.suspended
+                    {
+                        return ServerMessage::Error {
+                            code: "ASSISTANCE_DISABLED".to_owned(),
+                            message: "POP assistance is not enabled for X.".to_owned(),
+                        };
+                    }
+                    let direction = match command {
+                        crate::protocol::UiCommand::Up => "up",
+                        crate::protocol::UiCommand::Down => "down",
+                        crate::protocol::UiCommand::Left => "left",
+                        crate::protocol::UiCommand::Right => "right",
+                        crate::protocol::UiCommand::Show => unreachable!(),
+                    };
+                    let _ = app.emit("pop://avatar-action", direction);
+                }
             }
             ServerMessage::Ack { message_id }
         }
