@@ -527,6 +527,15 @@ pub fn run() {
                 }
             });
 
+            let loopback_core = core.clone();
+            let loopback_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = server::run_loopback(loopback_core, loopback_app.clone()).await
+                {
+                    let _ = loopback_app.emit("pop://runtime-error", error);
+                }
+            });
+
             let show_item =
                 MenuItem::with_id(app, "show", "Show and resume POP", true, None::<&str>)?;
             let hide_item = MenuItem::with_id(app, "hide", "Minimize POP", true, None::<&str>)?;

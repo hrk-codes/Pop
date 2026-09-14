@@ -1,15 +1,27 @@
 import { PROTOCOL_VERSION, type ContextObservation, type ProtocolEnvelope } from '@pop/protocol';
+import {
+  requestLoopback,
+  type Control,
+  type LoopbackServerMessage as ServerMessage,
+} from '../utils/loopback';
 
-type Control = { monitoringEnabled: boolean; xEnabled: boolean };
 type ContentMessage =
   { type: 'POP_CONTEXT'; observation: ContextObservation } | { type: 'POP_GET_CONTROL' };
+type PopupMessage = { type: 'POP_LOOPBACK_GRANTED'; control: Control } | { type: 'POP_SHOW' };
+type Transport = 'native' | 'loopback' | null;
 
 export default defineBackground(() => {
   const reconnectAlarm = 'pop-native-reconnect';
   let port: chrome.runtime.Port | null = null;
+  let nativeReady = false;
+  let transport: Transport = null;
   let control: Control = { monitoringEnabled: false, xEnabled: false };
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let loopbackSync: Promise<void> | null = null;
+  let flushingLoopback = false;
+  let lastNativeError = '';
   const pending: ProtocolEnvelope[] = [];
+  const contentPorts = new Set<chrome.runtime.Port>();
 
   function envelope(message: Pick<ProtocolEnvelope, 'type' | 'payload'>): ProtocolEnvelope {
     return {
@@ -20,7 +32,15 @@ export default defineBackground(() => {
       ...message,
     } as ProtocolEnvelope;
   }
+
   function broadcastControl() {
+    for (const contentPort of contentPorts) {
+      try {
+        contentPort.postMessage({ type: 'POP_CONTROL', control });
+      } catch {
+        contentPorts.delete(contentPort);
+      }
+    }
     void chrome.tabs.query({ url: 'https://x.com/*' }).then((tabs) => {
       for (const tab of tabs)
         if (tab.id)
@@ -29,70 +49,180 @@ export default defineBackground(() => {
             .catch(() => undefined);
     });
   }
-  function connect() {
+
+  function acceptControl(value: unknown, source: Exclude<Transport, null>): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const message = value as Partial<ServerMessage>;
+    if (
+      message.type !== 'CONTROL' ||
+      typeof message.monitoringEnabled !== 'boolean' ||
+      typeof message.xEnabled !== 'boolean'
+    ) {
+      return false;
+    }
+    if (source === 'native' || transport !== 'native') transport = source;
+    control = {
+      monitoringEnabled: message.monitoringEnabled,
+      xEnabled: message.xEnabled,
+    };
+    broadcastControl();
+    return true;
+  }
+
+  async function flushPendingToLoopback() {
+    if (flushingLoopback || transport !== 'loopback') return;
+    flushingLoopback = true;
+    try {
+      while (pending.length && transport === 'loopback') {
+        const item = pending[0];
+        await requestLoopback('/message', {
+          method: 'POST',
+          body: JSON.stringify(item),
+        });
+        if (pending[0]?.id === item.id) pending.shift();
+      }
+    } catch {
+      if (transport === 'loopback') {
+        transport = null;
+        control = { monitoringEnabled: false, xEnabled: false };
+        broadcastControl();
+      }
+    } finally {
+      flushingLoopback = false;
+    }
+  }
+
+  function syncLoopback() {
+    if (loopbackSync) return loopbackSync;
+    loopbackSync = requestLoopback('/control')
+      .then((value) => {
+        if (acceptControl(value, 'loopback')) void flushPendingToLoopback();
+      })
+      .catch(() => {
+        if (!nativeReady) {
+          transport = null;
+          control = { monitoringEnabled: false, xEnabled: false };
+          broadcastControl();
+        }
+      })
+      .finally(() => {
+        loopbackSync = null;
+      });
+    return loopbackSync;
+  }
+
+  function connectNative() {
     if (port) return;
     globalThis.clearTimeout(reconnectTimer);
     try {
       port = chrome.runtime.connectNative('dev.pop.companion');
-    } catch {
-      reconnectTimer = globalThis.setTimeout(connect, 3000);
+    } catch (error) {
+      lastNativeError = error instanceof Error ? error.message : 'Native messaging unavailable';
+      console.warn(`POP native bridge unavailable: ${lastNativeError}`);
+      reconnectTimer = globalThis.setTimeout(connectNative, 3_000);
+      void syncLoopback();
       return;
     }
     port.onMessage.addListener((message: unknown) => {
-      if (typeof message !== 'object' || message === null) return;
-      const value = message as Record<string, unknown>;
-      if (
-        value.type === 'CONTROL' &&
-        typeof value.monitoringEnabled === 'boolean' &&
-        typeof value.xEnabled === 'boolean'
-      ) {
-        control = { monitoringEnabled: value.monitoringEnabled, xEnabled: value.xEnabled };
-        broadcastControl();
+      if (acceptControl(message, 'native')) {
+        nativeReady = true;
         for (const item of pending.splice(0)) port?.postMessage(item);
       }
     });
     port.onDisconnect.addListener(() => {
-      void chrome.runtime.lastError;
+      const error = chrome.runtime.lastError?.message ?? 'Native host disconnected';
+      if (error !== lastNativeError) {
+        lastNativeError = error;
+        console.warn(`POP native bridge unavailable: ${error}`);
+      }
       port = null;
-      control = { monitoringEnabled: false, xEnabled: false };
-      broadcastControl();
-      reconnectTimer = globalThis.setTimeout(connect, 3000);
+      nativeReady = false;
+      if (transport === 'native') transport = null;
+      reconnectTimer = globalThis.setTimeout(connectNative, 3_000);
+      void syncLoopback();
     });
   }
+
   function send(message: ProtocolEnvelope) {
-    if (!port) {
-      pending.push(message);
-      pending.splice(0, Math.max(0, pending.length - 8));
-      connect();
+    if (transport === 'native' && nativeReady && port) {
+      port.postMessage(message);
       return;
     }
-    port.postMessage(message);
+    pending.push(message);
+    pending.splice(0, Math.max(0, pending.length - 8));
+    connectNative();
+    void syncLoopback().then(flushPendingToLoopback);
   }
 
-  chrome.runtime.onMessage.addListener((message: ContentMessage, sender, respond) => {
-    connect();
+  function handleContentMessage(
+    message: ContentMessage,
+    senderUrl: string | undefined,
+    respond: (value: Control) => void,
+  ) {
+    connectNative();
+    void syncLoopback();
     if (message.type === 'POP_GET_CONTROL') {
       respond(control);
-      return true;
+      return;
     }
     if (
       message.type === 'POP_CONTEXT' &&
-      sender.tab?.url?.startsWith('https://x.com/') &&
+      senderUrl?.startsWith('https://x.com/') &&
       control.monitoringEnabled &&
       control.xEnabled
     ) {
       send(envelope({ type: 'CONTEXT', payload: message.observation }));
     }
-    return false;
-  });
-  chrome.action.onClicked.addListener(() =>
-    send(envelope({ type: 'UI_COMMAND', payload: { command: 'SHOW' } })),
+  }
+
+  chrome.runtime.onMessage.addListener(
+    (message: ContentMessage | PopupMessage, sender, respond) => {
+      if (message.type === 'POP_LOOPBACK_GRANTED' && sender.id === chrome.runtime.id) {
+        if (acceptControl({ type: 'CONTROL', ...message.control }, 'loopback')) {
+          void flushPendingToLoopback();
+        }
+        return false;
+      }
+      if (message.type === 'POP_SHOW' && sender.id === chrome.runtime.id) {
+        send(envelope({ type: 'UI_COMMAND', payload: { command: 'SHOW' } }));
+        return false;
+      }
+      if (message.type === 'POP_GET_CONTROL' || message.type === 'POP_CONTEXT') {
+        handleContentMessage(message, sender.tab?.url, respond);
+        return message.type === 'POP_GET_CONTROL';
+      }
+      return false;
+    },
   );
+  chrome.runtime.onConnect.addListener((contentPort) => {
+    if (
+      contentPort.name !== 'pop-x-context' ||
+      !contentPort.sender?.tab?.url?.startsWith('https://x.com/')
+    ) {
+      contentPort.disconnect();
+      return;
+    }
+    contentPorts.add(contentPort);
+    contentPort.onMessage.addListener((message: ContentMessage) => {
+      handleContentMessage(message, contentPort.sender?.tab?.url, (value) =>
+        contentPort.postMessage({ type: 'POP_CONTROL', control: value }),
+      );
+    });
+    contentPort.onDisconnect.addListener(() => contentPorts.delete(contentPort));
+    contentPort.postMessage({ type: 'POP_CONTROL', control });
+    connectNative();
+    void syncLoopback();
+  });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== reconnectAlarm) return;
-    if (port) send(envelope({ type: 'HEARTBEAT', payload: {} }));
-    else connect();
+    if (transport === 'native' && nativeReady) {
+      send(envelope({ type: 'HEARTBEAT', payload: {} }));
+    } else {
+      connectNative();
+      void syncLoopback();
+    }
   });
   void chrome.alarms.create(reconnectAlarm, { periodInMinutes: 0.5 });
-  connect();
+  connectNative();
+  void syncLoopback();
 });

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>POP connection</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark" aria-hidden="true">P</span>
+        <div>
+          <strong>POP</strong>
+          <p>Private X companion</p>
+        </div>
+      </header>
+      <section aria-live="polite">
+        <span id="status-dot" class="status-dot"></span>
+        <div>
+          <strong id="status-title">Connecting to desktop</strong>
+          <p id="status-detail">Keep the POP desktop app running.</p>
+        </div>
+      </section>
+      <div class="actions">
+        <button id="connect" type="button">Connect local POP</button>
+        <button id="show" class="secondary" type="button" disabled>Show POP</button>
+      </div>
+      <p class="privacy">Only approved X selections and drafts are shared locally.</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

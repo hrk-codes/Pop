@@ -122,9 +122,11 @@ impl GroqProvider {
                 "Rewrite this draft more concisely while preserving its meaning and voice."
             }
             "DRAFT_REPLY" => {
-                "Draft one concise, relevant reply under 280 characters. Do not invent facts."
+                "Treat the content as a conversation. Draft one natural, specific reply under 280 characters that adds a relevant observation or thoughtful question. Do not merely summarize the post and do not invent facts."
             }
-            "EXPLAIN_TEXT" => "Explain the selected text accurately and concisely.",
+            "EXPLAIN_TEXT" => {
+                "Explain what the selected text means and provide only the context needed to understand it. Do not write a social reply."
+            }
             "SUMMARIZE" => "Summarize the selected content faithfully and concisely.",
             _ => return Err("UNSUPPORTED_AI_TASK".to_owned()),
         };

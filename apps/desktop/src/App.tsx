@@ -20,6 +20,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { PopAvatar } from './features/companion/PopAvatar';
+import {
+  actionsFor,
+  automaticTaskFor,
+  type CompanionTask,
+  type Direction,
+} from './features/companion/intent';
 import { companionMachine, type ExpressionState } from './features/companion/machine';
 import {
   hideCurrentSurface,
@@ -44,14 +50,10 @@ import {
   suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
-  type AssistanceTask,
-  type ContextKind,
   type RuntimeSnapshot,
 } from './features/runtime/runtime-client';
 
 type AvatarSize = 56 | 76 | 104;
-type Direction = 'up' | 'down' | 'left' | 'right';
-type ActionItem = { task?: AssistanceTask | 'CHECK_WRITING' };
 type ResultPayload = {
   requestId: string;
   output: string;
@@ -80,31 +82,18 @@ function errorText(error: unknown): string {
     : 'POP could not complete that request.';
 }
 
-function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
-  if (kind === 'DRAFT_TEXT') {
-    return {
-      up: { task: 'CHECK_WRITING' },
-      down: { task: 'IMPROVE_WRITING' },
-      right: { task: 'SHORTEN' },
-      left: {},
-    };
-  }
-  return {
-    up: { task: 'EXPLAIN_TEXT' },
-    down: { task: 'DRAFT_REPLY' },
-    right: { task: 'SUMMARIZE' },
-    left: {},
-  };
-}
-
 function AvatarSurface() {
   const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
   const [size, setSize] = useState<AvatarSize>(76);
   const [state, send] = useMachine(companionMachine);
   const [resultReady, setResultReady] = useState(false);
-  const [lastTask, setLastTask] = useState<AssistanceTask | 'CHECK_WRITING' | null>(null);
+  const lastTask = useRef<CompanionTask | null>(null);
+  const automaticTimer = useRef<number | undefined>(undefined);
+  const automaticFingerprint = useRef('');
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
+  const activateRef = useRef<(direction: Direction) => void>(() => undefined);
+  const clickTimer = useRef<number | undefined>(undefined);
   const actions = useMemo(
     () => actionsFor(runtime.currentContext?.observation.kind),
     [runtime.currentContext?.observation.kind],
@@ -114,8 +103,8 @@ function AvatarSurface() {
   );
 
   const runTask = useCallback(
-    async (task: AssistanceTask | 'CHECK_WRITING') => {
-      setLastTask(task);
+    async (task: CompanionTask) => {
+      lastTask.current = task;
       setResultReady(false);
       send({ type: 'REQUEST' });
       await showSurface('speech');
@@ -146,10 +135,26 @@ function AvatarSurface() {
     void getRuntimeSnapshot().then(setRuntime);
     void getCompanionPreferences().then((preferences) => setSize(preferences.avatarSize));
     void onRuntimeUpdate((snapshot) => {
+      window.clearTimeout(automaticTimer.current);
       setRuntime(snapshot);
       setResultReady(false);
       void emit('pop://context-changed');
       send(snapshot.currentContext ? { type: 'CONTEXT_READY' } : { type: 'RESET' });
+      const context = snapshot.currentContext;
+      if (!context) {
+        automaticFingerprint.current = '';
+        return;
+      }
+      const fingerprint = `${context.observation.kind}:${context.observation.text}`;
+      const task = automaticTaskFor(context.observation.kind);
+      const enabled =
+        snapshot.permissions.monitoringEnabled &&
+        snapshot.permissions.platforms.X &&
+        !snapshot.suspended;
+      if (enabled && task && fingerprint !== automaticFingerprint.current) {
+        automaticFingerprint.current = fingerprint;
+        automaticTimer.current = window.setTimeout(() => void runTask(task), 650);
+      }
     }).then((cleanup) => cleanups.push(cleanup));
     void onCloudActivity((active) => send({ type: active ? 'REQUEST' : 'STREAM_END' })).then(
       (cleanup) => cleanups.push(cleanup),
@@ -163,7 +168,10 @@ function AvatarSurface() {
       cleanups.push(cleanup),
     );
     void appListen('pop://variant-requested', () => {
-      if (lastTask) void runTask(lastTask);
+      if (lastTask.current) void runTask(lastTask.current);
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<Direction>('pop://avatar-action', (direction) => {
+      activateRef.current(direction);
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<number>('pop://avatar-size', (value) => {
       if ([56, 76, 104].includes(value)) {
@@ -171,14 +179,19 @@ function AvatarSurface() {
         void saveAvatarSize(value);
       }
     }).then((cleanup) => cleanups.push(cleanup));
-    return () => cleanups.forEach((cleanup) => cleanup());
-  }, [lastTask, runTask, send]);
+    return () => {
+      window.clearTimeout(automaticTimer.current);
+      cleanups.forEach((cleanup) => cleanup());
+    };
+  }, [runTask, send]);
 
   useEffect(() => {
     void resizeAvatarSurface(size);
   }, [size]);
 
   function activate(direction: Direction) {
+    if (!assistanceEnabled) return;
+    window.clearTimeout(automaticTimer.current);
     if (!runtime.currentContext) {
       void showSurface('speech');
       void emit(
@@ -203,6 +216,23 @@ function AvatarSurface() {
     if (action.task) void runTask(action.task);
     else void toggleMenu();
   }
+  activateRef.current = activate;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const direction = (
+        { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
+      )[event.key as 'ArrowUp'];
+      if (!direction) return;
+      event.preventDefault();
+      activateRef.current(direction);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.clearTimeout(clickTimer.current);
+    };
+  }, []);
 
   function onWheel(event: React.WheelEvent) {
     event.preventDefault();
@@ -232,28 +262,39 @@ function AvatarSurface() {
     dragOrigin.current = null;
   }
 
+  function directionFromClick(event: React.MouseEvent<HTMLButtonElement>): Direction {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - bounds.left - bounds.width / 2;
+    const y = event.clientY - bounds.top - bounds.height / 2;
+    const deadZone = Math.min(bounds.width, bounds.height) * 0.18;
+    if (Math.hypot(x, y) < deadZone) return 'down';
+    if (Math.abs(x) > Math.abs(y)) return x < 0 ? 'left' : 'right';
+    return y < 0 ? 'up' : 'down';
+  }
+
+  function activateFromClick(event: React.MouseEvent<HTMLButtonElement>) {
+    if (event.detail !== 1 || dragging.current) return;
+    const direction = directionFromClick(event);
+    window.clearTimeout(clickTimer.current);
+    clickTimer.current = window.setTimeout(() => activateRef.current(direction), 280);
+  }
+
+  function openMenuFromDoubleClick() {
+    window.clearTimeout(clickTimer.current);
+    void toggleMenu();
+  }
+
   const expression: ExpressionState =
     runtime.permissions.monitoringEnabled && !runtime.suspended
       ? state.context.expression
       : 'sleeping';
   return (
-    <main
-      className="avatar-surface"
-      onKeyDown={(event) => {
-        const direction = (
-          { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
-        )[event.key as 'ArrowUp'];
-        if (direction && assistanceEnabled) {
-          event.preventDefault();
-          activate(direction);
-        }
-      }}
-      onWheel={onWheel}
-      tabIndex={0}
-    >
+    <main className="avatar-surface" onWheel={onWheel} tabIndex={0}>
       <button
+        aria-label="POP assistant"
         className="avatar-button"
-        onDoubleClick={() => void toggleMenu()}
+        onClick={activateFromClick}
+        onDoubleClick={openMenuFromDoubleClick}
         onPointerCancel={endPointerGesture}
         onPointerDown={beginPointerGesture}
         onPointerMove={continuePointerGesture}
@@ -285,16 +326,7 @@ function SpeechSurface() {
   const [streamMeta, setStreamMeta] = useState<Omit<ResultPayload, 'output'> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const historyRef = useRef<ResultPayload[]>([]);
-  const timer = useRef<number | undefined>(undefined);
   const active = stream || history[index]?.output || '';
-
-  const scheduleCollapse = useCallback(() => {
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
-      void hideCurrentSurface();
-      void emit('pop://speech-collapsed');
-    }, 10_000);
-  }, []);
 
   useEffect(() => {
     historyRef.current = history;
@@ -306,13 +338,14 @@ function SpeechSurface() {
       setStream('');
       setError(null);
       setStreamMeta(payload);
-      window.clearTimeout(timer.current);
       void showSurface('speech');
     }).then((cleanup) => cleanups.push(cleanup));
-    void onAssistanceChunk((payload) => setStream((value) => value + payload.delta)).then(
-      (cleanup) => cleanups.push(cleanup),
-    );
+    void onAssistanceChunk((payload) => {
+      setError(null);
+      setStream((value) => value + payload.delta);
+    }).then((cleanup) => cleanups.push(cleanup));
     void onAssistanceComplete((payload) => {
+      setError(null);
       setHistory((items) => {
         const next = [...items, payload].slice(-5);
         setIndex(next.length - 1);
@@ -320,12 +353,10 @@ function SpeechSurface() {
       });
       setStream('');
       setStreamMeta(null);
-      scheduleCollapse();
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<string>('pop://assistance-failed', (value) => {
       setError(value);
       setStream('');
-      scheduleCollapse();
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen('pop://context-changed', () => {
       setHistory([]);
@@ -342,20 +373,12 @@ function SpeechSurface() {
         void emit('pop://variant-requested');
         return current;
       });
-      scheduleCollapse();
     }).then((cleanup) => cleanups.push(cleanup));
-    return () => {
-      window.clearTimeout(timer.current);
-      cleanups.forEach((cleanup) => cleanup());
-    };
-  }, [scheduleCollapse]);
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, []);
 
   return (
-    <main
-      className="speech-surface"
-      onMouseEnter={() => window.clearTimeout(timer.current)}
-      onMouseLeave={scheduleCollapse}
-    >
+    <main className="speech-surface">
       <div className="speech-tail" />
       <article className="speech-bubble" aria-live="polite">
         <div className="speech-copy">
@@ -428,6 +451,10 @@ function MenuSurface() {
       setHealth('failed');
     }
   }
+  async function triggerAvatarAction(direction: Direction) {
+    await hideCurrentSurface();
+    await emit('pop://avatar-action', direction);
+  }
   const rows = [
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} />, detail: 'Local + Groq' },
     {
@@ -492,20 +519,77 @@ function MenuSurface() {
             type="checkbox"
           />
         </label>
-        <label className="menu-row">
-          <MessageCircle size={18} />
-          <span>
-            <strong>X assistance</strong>
-            <small>{xStatus}</small>
-          </span>
-          <input
-            checked={runtime.permissions.platforms.X}
-            onChange={(event) =>
-              void updatePlatformPermission('X', event.target.checked).then(setRuntime)
-            }
-            type="checkbox"
-          />
-        </label>
+        <div className="menu-group x-assistance">
+          <div className="menu-row">
+            <MessageCircle size={18} />
+            <button
+              className="menu-disclosure"
+              onClick={() => setSection(section === 'x' ? null : 'x')}
+              type="button"
+            >
+              <span>
+                <strong>X assistance</strong>
+                <small>{xStatus}</small>
+              </span>
+            </button>
+            <input
+              aria-label="Allow X assistance"
+              checked={runtime.permissions.platforms.X}
+              onChange={(event) =>
+                void updatePlatformPermission('X', event.target.checked).then(setRuntime)
+              }
+              type="checkbox"
+            />
+            <button
+              aria-label="Show X actions"
+              className="menu-chevron"
+              onClick={() => setSection(section === 'x' ? null : 'x')}
+              type="button"
+            >
+              <ChevronRight className={section === 'x' ? 'rotate' : ''} size={17} />
+            </button>
+          </div>
+          {section === 'x' && (
+            <div className="submenu context-actions">
+              {runtime.currentContext?.observation.kind === 'DRAFT_TEXT' ? (
+                <>
+                  <button onClick={() => void triggerAvatarAction('up')} type="button">
+                    Check grammar
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('down')} type="button">
+                    Improve writing
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('right')} type="button">
+                    Shorten
+                  </button>
+                </>
+              ) : runtime.currentContext?.observation.kind === 'SOCIAL_POST' ? (
+                <>
+                  <button onClick={() => void triggerAvatarAction('up')} type="button">
+                    Explain
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('down')} type="button">
+                    Draft reply
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('right')} type="button">
+                    Summarize
+                  </button>
+                </>
+              ) : runtime.currentContext ? (
+                <>
+                  <button onClick={() => void triggerAvatarAction('up')} type="button">
+                    Explain
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('right')} type="button">
+                    Summarize
+                  </button>
+                </>
+              ) : (
+                <span>Select a post or pause in an X draft to reveal actions.</span>
+              )}
+            </div>
+          )}
+        </div>
         {rows.map((row) => (
           <div className="menu-group" key={row.id}>
             <button

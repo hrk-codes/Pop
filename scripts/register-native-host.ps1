@@ -11,7 +11,8 @@ $projectRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Pa
 $manifestRoot = Join-Path $env:LOCALAPPDATA 'POP\NativeMessaging'
 $manifestPath = Join-Path $manifestRoot 'dev.pop.companion.json'
 $profile = if ($Configuration -eq 'Release') { 'release' } else { 'debug' }
-$hostPath = Join-Path $projectRoot "apps\desktop\src-tauri\target\$profile\pop-native-host.exe"
+$builtHostPath = Join-Path $projectRoot "apps\desktop\src-tauri\target\$profile\pop-native-host.exe"
+$hostPath = Join-Path $manifestRoot 'pop-native-host.exe'
 $extensionId = 'fpkepfajehdejjbccjaecmbmdepkaddf'
 
 if (-not $SkipBuild) {
@@ -28,11 +29,12 @@ if (-not $SkipBuild) {
     }
 }
 
-if (-not (Test-Path -LiteralPath $hostPath)) {
-    throw "POP native host is missing: $hostPath"
+if (-not (Test-Path -LiteralPath $builtHostPath)) {
+    throw "POP native host is missing: $builtHostPath"
 }
 
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
+Copy-Item -LiteralPath $builtHostPath -Destination $hostPath -Force
 $manifest = [ordered]@{
     name = 'dev.pop.companion'
     description = 'Authenticated bridge between the POP X adapter and POP Core.'
@@ -48,5 +50,6 @@ Set-Item -Path $registryPath -Value $manifestPath
 
 $extensionPath = Join-Path $projectRoot 'apps\chrome-extension\dist\chrome-mv3'
 Write-Host 'POP native messaging is registered for the current Windows user.'
+Write-Host "Installed native host: $hostPath"
 Write-Host "Load this folder once at chrome://extensions: $extensionPath"
 Write-Host "Expected stable extension ID: $extensionId"

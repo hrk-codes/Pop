@@ -37,8 +37,9 @@ the system tray. Clicking the tray icon shows POP and resumes the previously ena
 Whenever the adapter is rebuilt, click **Reload** on its extension card and then reload X. POP's menu
 must report **X adapter connected** before an X selection can become context.
 
-There is no extension popup and no pairing code. Chrome's one-time extension and X-access approval
-cannot be skipped by a desktop application. After installation, daily controls live in POP.
+There is no pairing code. The extension popup is a small connection diagnostic with a **Show POP**
+shortcut; daily permission and assistance controls live in POP. Chrome's one-time extension and
+X-access approval cannot be skipped by a desktop application.
 
 ## 3. Configure AI
 
@@ -70,19 +71,25 @@ and choose **Check Groq**. The menu reports status without showing the key.
 
 1. Open X and begin an unsent post or reply containing a grammar error.
 2. Pause briefly after typing.
-3. POP should become attentive. Click POP once to focus it; no arrow controls should appear.
-4. Press Up for Grammar and verify the attached bubble returns a local correction.
-5. Press Down for Improve and verify Groq text streams into the bubble. Right requests Shorten.
+3. POP should become attentive and automatically show a local writing correction. No arrow controls
+   should appear.
+4. Click the upper part of the mascot, or press Up while POP has keyboard focus, to run Grammar again.
+5. Click the lower part, or press Down while focused, for a Groq rewrite. Right requests Shorten.
 6. Copy the preview and confirm POP does not alter or submit the X draft.
 
 ## 6. Test a selected post
 
 1. Select text inside an X post.
-2. POP should become attentive. Click POP once to focus it; no arrow controls should appear.
-3. Press Up for Explain, Down for Reply, or Right for Summarize. After generating, Left and Right
-   navigate previous and next variants.
-4. Leave the bubble untouched for ten seconds; it should collapse to the coral result dot.
-5. Click the dot to reopen the answer.
+2. After the selection remains stable briefly, POP should draft a relevant reply automatically. No
+   arrow controls should appear.
+3. Click the upper part of the mascot for Explain, the lower part for Reply, or the right edge for
+   Summarize. The equivalent focused keyboard actions are Up, Down, and Right. After generating, use
+   the left and right edges, or focused Left and Right keys, to navigate variants.
+4. Confirm the response remains visible until you close it, collapse it, or select new context.
+5. Collapse the response with its minus button, then click the coral result dot to reopen it.
+
+Selecting text outside an X post should automatically produce an explanation instead of a reply. Its
+manual menu contains Explain and Summarize only, preventing an incompatible reply request.
 
 Changing the selection or X route invalidates the previous context. Context also expires after 90
 seconds. Password and security-like fields are rejected before they reach POP Core.

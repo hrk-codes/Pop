@@ -259,6 +259,32 @@ button {
 .menu-group {
   border-top: 1px solid rgb(255 255 255 / 6%);
 }
+.x-assistance .menu-row {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) 34px 28px;
+}
+.menu-surface .menu-disclosure {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  justify-content: flex-start;
+  padding: 0;
+  text-align: left;
+}
+.menu-disclosure > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.menu-surface .menu-chevron {
+  width: 28px;
+  height: 28px;
+}
+.menu-chevron .rotate {
+  transform: rotate(90deg);
+}
 .submenu {
   display: flex;
   align-items: center;
@@ -275,6 +301,13 @@ button {
   align-items: center;
   gap: 7px;
   padding: 7px 8px;
+}
+.context-actions {
+  flex-wrap: wrap;
+}
+.context-actions > button {
+  border: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(255 255 255 / 4%);
 }
 .size-control {
   display: flex;

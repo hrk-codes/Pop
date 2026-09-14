@@ -8,9 +8,9 @@ export default defineContentScript({
   main() {
     let control: Control = { monitoringEnabled: false, xEnabled: false };
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let controlTimer: ReturnType<typeof setTimeout> | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let bridge: chrome.runtime.Port | null = null;
     let lastFingerprint = '';
-    let lastSentAt = 0;
     let lastUrl = location.href;
     const enabled = () => control.monitoringEnabled && control.xEnabled;
 
@@ -37,9 +37,8 @@ export default defineContentScript({
       if (!enabled() || text.length < 2) return;
       const bounded = [...text].slice(0, 8000).join('');
       const fingerprint = `${kind}:${bounded}`;
-      if (fingerprint === lastFingerprint && Date.now() - lastSentAt < 3_000) return;
+      if (fingerprint === lastFingerprint) return;
       lastFingerprint = fingerprint;
-      lastSentAt = Date.now();
       const observation: ContextObservation = {
         kind,
         platformId: 'X',
@@ -49,69 +48,141 @@ export default defineContentScript({
         title: document.title.slice(0, 300),
         observedAt: Date.now(),
       };
-      void chrome.runtime.sendMessage({ type: 'POP_CONTEXT', observation });
+      void chrome.runtime.sendMessage({ type: 'POP_CONTEXT', observation }).catch(() => {
+        if (lastFingerprint === fingerprint) lastFingerprint = '';
+        bridge = null;
+        connectBridge();
+      });
     }
     function inspect(event?: Event) {
       globalThis.clearTimeout(timer);
-      timer = globalThis.setTimeout(() => {
-        if (!enabled()) return;
-        const draft =
-          editable(event?.target ?? document.activeElement) ?? editable(document.activeElement);
-        if (draft) {
-          const text = textOf(draft);
-          if (text) emit('DRAFT_TEXT', text);
-          return;
+      const candidate =
+        editable(event?.target ?? document.activeElement) ?? editable(document.activeElement);
+      timer = globalThis.setTimeout(
+        () => {
+          if (!enabled()) return;
+          const draft =
+            editable(event?.target ?? document.activeElement) ?? editable(document.activeElement);
+          if (draft) {
+            const text = textOf(draft);
+            if (text) emit('DRAFT_TEXT', text);
+            return;
+          }
+          const selection = window.getSelection();
+          const text = selection?.toString().trim() ?? '';
+          if (!text || !selection?.anchorNode) return;
+          const node =
+            selection.anchorNode instanceof Element
+              ? selection.anchorNode
+              : selection.anchorNode.parentElement;
+          emit(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
+        },
+        candidate ? 850 : 550,
+      );
+    }
+
+    function applyControl(value: Control) {
+      const wasEnabled = enabled();
+      control = value;
+      if (!enabled()) {
+        globalThis.clearTimeout(timer);
+        lastFingerprint = '';
+      } else if (!wasEnabled) {
+        inspect();
+      }
+    }
+
+    async function refreshControl() {
+      try {
+        const value = (await chrome.runtime.sendMessage({
+          type: 'POP_GET_CONTROL',
+        })) as Control;
+        if (
+          value &&
+          typeof value.monitoringEnabled === 'boolean' &&
+          typeof value.xEnabled === 'boolean'
+        ) {
+          applyControl(value);
         }
-        const selection = window.getSelection();
-        const text = selection?.toString().trim() ?? '';
-        if (!text || !selection?.anchorNode) return;
-        const node =
-          selection.anchorNode instanceof Element
-            ? selection.anchorNode
-            : selection.anchorNode.parentElement;
-        emit(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
-      }, 250);
+      } catch {
+        applyControl({ monitoringEnabled: false, xEnabled: false });
+      }
     }
 
-    function syncControl() {
-      globalThis.clearTimeout(controlTimer);
-      void chrome.runtime
-        .sendMessage({ type: 'POP_GET_CONTROL' })
-        .then((value: Control) => {
-          control = value;
-          if (enabled()) inspect();
-        })
-        .catch(() => {
-          controlTimer = globalThis.setTimeout(syncControl, 1_000);
-        });
+    function connectBridge() {
+      if (bridge) return;
+      globalThis.clearTimeout(reconnectTimer);
+      try {
+        bridge = chrome.runtime.connect({ name: 'pop-x-context' });
+      } catch {
+        reconnectTimer = globalThis.setTimeout(connectBridge, 1_000);
+        return;
+      }
+      const currentBridge = bridge;
+      currentBridge.onMessage.addListener((message: unknown) => {
+        if (
+          typeof message === 'object' &&
+          message &&
+          (message as { type?: string }).type === 'POP_CONTROL'
+        ) {
+          applyControl((message as { control: Control }).control);
+        }
+      });
+      currentBridge.onDisconnect.addListener(() => {
+        void chrome.runtime.lastError;
+        if (bridge === currentBridge) bridge = null;
+        applyControl({ monitoringEnabled: false, xEnabled: false });
+        reconnectTimer = globalThis.setTimeout(connectBridge, 1_000);
+      });
+      currentBridge.postMessage({ type: 'POP_GET_CONTROL' });
     }
 
+    connectBridge();
     chrome.runtime.onMessage.addListener((message: unknown) => {
       if (
         typeof message === 'object' &&
         message &&
         (message as { type?: string }).type === 'POP_CONTROL'
       ) {
-        control = (message as { control: Control }).control;
-        if (!enabled()) {
-          globalThis.clearTimeout(timer);
-          lastFingerprint = '';
-        } else {
-          inspect();
-        }
+        applyControl((message as { control: Control }).control);
       }
     });
-    syncControl();
-    document.addEventListener('input', inspect, true);
-    document.addEventListener('selectionchange', inspect);
-    document.addEventListener('mouseup', inspect, true);
-    document.addEventListener('keyup', inspect, true);
+    document.addEventListener(
+      'input',
+      (event) => {
+        void refreshControl().then(() => inspect(event));
+      },
+      true,
+    );
+    document.addEventListener('selectionchange', (event) => {
+      if (!window.getSelection()?.toString().trim() && !editable(document.activeElement)) {
+        lastFingerprint = '';
+      }
+      void refreshControl().then(() => inspect(event));
+    });
+    document.addEventListener(
+      'mouseup',
+      (event) => {
+        void refreshControl().then(() => inspect(event));
+      },
+      true,
+    );
+    document.addEventListener(
+      'keyup',
+      (event) => {
+        void refreshControl().then(() => inspect(event));
+      },
+      true,
+    );
+    void refreshControl();
     globalThis.setInterval(() => {
+      if (!bridge) connectBridge();
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         lastFingerprint = '';
         globalThis.clearTimeout(timer);
       }
-    }, 750);
+      void refreshControl();
+    }, 2_000);
   },
 });

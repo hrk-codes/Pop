@@ -10,9 +10,13 @@ pnpm --filter @pop/chrome-extension build
 ```
 
 Load the generated folder once through `chrome://extensions`. The extension ID is fixed by a public
-manifest key, allowing Chrome Native Messaging to restrict the local host to this adapter. There is no
-popup, localhost socket, pairing code, or reusable browser token.
+manifest key. The adapter prefers Chrome Native Messaging and falls back to an authenticated loopback
+request when Chrome cannot find the registered native host. The toolbar popup only reports connection
+state and can show POP; there is no pairing code.
 
-The content script runs only on X, checks the Core-provided monitoring state, waits for a stable draft
-or selection, rejects sensitive fields, and sends a bounded semantic snapshot. It never submits forms,
-automates X, reads browser history or cookies, or records individual key and pointer events.
+The fallback accepts only requests carrying POP's installed bridge secret and Chrome's protected
+extension-fetch metadata. Ordinary webpage origins, missing metadata, and invalid tokens are rejected.
+
+The content script runs only on X, refreshes the Core-provided monitoring state, waits for a stable
+draft or selection, rejects sensitive fields, and sends a bounded semantic snapshot. It never submits
+forms, automates X, reads browser history or cookies, or records individual key and pointer events.
