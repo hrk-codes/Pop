@@ -94,65 +94,99 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 9px 12px;
+  padding: 8px 11px;
+}
+
+.speech-surface--preview {
+  margin: 24px;
+}
+.speech-measurer {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: Inter, 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  visibility: hidden;
+  white-space: pre-wrap;
 }
 .speech-bubble {
+  position: relative;
+  z-index: 2;
   display: flex;
   width: 100%;
   height: 100%;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 16%);
+  border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 8px;
-  background: rgb(28 31 30 / 96%);
-  box-shadow: 0 14px 35px rgb(0 0 0 / 30%);
-  backdrop-filter: blur(18px);
+  background: rgb(22 25 24 / 97%);
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 38%),
+    inset 0 1px rgb(255 255 255 / 4%);
+  backdrop-filter: blur(22px);
   animation: speech-flow-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.speech-bubble::before {
+  position: absolute;
+  top: 0;
+  left: 16px;
+  width: 30px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: #72d7b0;
+  content: '';
+}
+.speech-bubble--reply::before {
+  background: #ff6b61;
 }
 .speech-surface--tail-left .speech-bubble {
   animation-name: speech-flow-in-left;
 }
 .speech-tail {
   position: absolute;
-  z-index: 2;
+  z-index: 1;
   top: var(--speech-tail-y, 70px);
-  width: 18px;
-  height: 18px;
-  background: #1c1f1e;
+  width: 15px;
+  height: 15px;
+  border-radius: 2px;
+  background: #161918;
   transform: translateY(-50%) rotate(45deg);
 }
 .speech-surface--tail-left .speech-tail {
   left: 4px;
-  border-bottom: 1px solid rgb(255 255 255 / 16%);
-  border-left: 1px solid rgb(255 255 255 / 16%);
+  border-bottom: 1px solid rgb(255 255 255 / 14%);
+  border-left: 1px solid rgb(255 255 255 / 14%);
 }
 .speech-surface--tail-right .speech-tail {
   right: 4px;
-  border-top: 1px solid rgb(255 255 255 / 16%);
-  border-right: 1px solid rgb(255 255 255 / 16%);
+  border-top: 1px solid rgb(255 255 255 / 14%);
+  border-right: 1px solid rgb(255 255 255 / 14%);
 }
 .speech-copy {
   flex: 1;
   min-height: 0;
-  padding: 18px 18px 10px;
+  padding: 17px 17px 11px;
   overflow: visible;
 }
 .speech-copy p {
   margin: 0;
-  color: #f8f8f4;
+  color: #f5f7f4;
   font-size: 15px;
-  line-height: 1.48;
+  font-weight: 400;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.speech-copy span {
-  display: block;
-  margin-top: 10px;
-  color: #9ea49f;
-  font-size: 11px;
-}
 .speech-copy .speech-error {
-  color: #ffd0cb;
+  color: #ffc8c2;
 }
 @keyframes speech-flow-in {
   from {
@@ -174,17 +208,56 @@ button {
     transform: translateX(0) scale(1);
   }
 }
-.speech-bubble footer {
+.speech-actions {
   position: relative;
   z-index: 3;
   display: flex;
-  min-height: 42px;
+  min-height: 35px;
   align-items: center;
-  gap: 4px;
-  padding: 5px 8px;
-  border-top: 1px solid rgb(255 255 255 / 9%);
+  justify-content: space-between;
+  padding: 3px 7px 4px;
+  border-top: 1px solid rgb(255 255 255 / 7%);
+  background: rgb(255 255 255 / 1.5%);
 }
-.speech-bubble footer button,
+.speech-action-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.speech-actions button {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #aeb5b0;
+  cursor: pointer;
+  place-items: center;
+}
+.speech-actions button:hover {
+  border-color: rgb(255 255 255 / 9%);
+  background: rgb(255 255 255 / 7%);
+  color: #f8faf7;
+}
+.speech-actions button:active {
+  transform: scale(0.92);
+}
+.speech-actions button:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+.speech-actions .speech-action--success {
+  color: #72d7b0;
+}
+.speech-position {
+  min-width: 30px;
+  color: #7f8782;
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+}
 .menu-surface button {
   display: grid;
   width: 32px;
@@ -197,19 +270,9 @@ button {
   cursor: pointer;
   place-items: center;
 }
-.speech-bubble footer button:hover,
 .menu-surface button:hover {
   background: rgb(255 255 255 / 8%);
   color: white;
-}
-.speech-bubble footer button:disabled {
-  cursor: default;
-  opacity: 0.35;
-}
-.speech-bubble footer span {
-  margin-left: auto;
-  color: #8e9490;
-  font-size: 11px;
 }
 
 .menu-surface {

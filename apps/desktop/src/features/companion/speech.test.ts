@@ -4,7 +4,7 @@ import { speechDimensions } from './speech';
 
 describe('speechDimensions', () => {
   it('keeps short thoughts compact', () => {
-    expect(speechDimensions('A quick explanation.')).toEqual({ width: 286, height: 118 });
+    expect(speechDimensions('A quick explanation.')).toEqual({ width: 292, height: 128 });
   });
 
   it('grows in both directions for a detailed explanation', () => {
@@ -17,6 +17,10 @@ describe('speechDimensions', () => {
   });
 
   it('counts explicit paragraphs as readable lines', () => {
-    expect(speechDimensions('One\nTwo\nThree').height).toBeGreaterThan(118);
+    expect(speechDimensions('One\nTwo\nThree').height).toBeGreaterThan(128);
+  });
+
+  it('uses the rendered text height instead of a character estimate', () => {
+    expect(speechDimensions('A wrapping sentence.', 72).height).toBe(156);
   });
 });

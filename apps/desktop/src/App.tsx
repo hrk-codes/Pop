@@ -2,6 +2,7 @@ import { useMachine } from '@xstate/react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  Check,
   ChevronRight,
   Cloud,
   Copy,
@@ -17,7 +18,15 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import { PopAvatar } from './features/companion/PopAvatar';
 import {
@@ -27,7 +36,11 @@ import {
   type Direction,
 } from './features/companion/intent';
 import { companionMachine, type ExpressionState } from './features/companion/machine';
-import { speechDimensions } from './features/companion/speech';
+import {
+  SPEECH_CONTENT_INSET,
+  preferredSpeechWidth,
+  speechDimensions,
+} from './features/companion/speech';
 import {
   hideCurrentSurface,
   resizeAvatarSurface,
@@ -349,16 +362,25 @@ function AvatarSurface() {
 }
 
 function SpeechSurface() {
+  const browserPreview = !isTauriRuntime();
+  const previewText = isTauriRuntime()
+    ? ''
+    : (new URLSearchParams(location.search).get('preview') ?? '');
   const [history, setHistory] = useState<ResultPayload[]>([]);
   const [index, setIndex] = useState(0);
   const [stream, setStream] = useState('');
   const [streamMeta, setStreamMeta] = useState<Omit<ResultPayload, 'output'> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<SpeechAnchor>({ side: 'right', tailY: 70 });
+  const [measuredTextHeight, setMeasuredTextHeight] = useState(0);
+  const [copied, setCopied] = useState(false);
   const historyRef = useRef<ResultPayload[]>([]);
-  const active = stream || history[index]?.output || '';
+  const measureRef = useRef<HTMLParagraphElement>(null);
+  const copyTimer = useRef<number | undefined>(undefined);
+  const active = stream || history[index]?.output || previewText;
   const visibleText = error || active || 'Thinking...';
-  const dimensions = speechDimensions(visibleText);
+  const preferredWidth = preferredSpeechWidth(visibleText);
+  const dimensions = speechDimensions(visibleText, measuredTextHeight);
 
   useEffect(() => {
     historyRef.current = history;
@@ -369,6 +391,7 @@ function SpeechSurface() {
     void onAssistanceStarted((payload) => {
       setStream('');
       setError(null);
+      setCopied(false);
       setStreamMeta(payload);
       void showSurface('speech');
     }).then((cleanup) => cleanups.push(cleanup));
@@ -412,52 +435,107 @@ function SpeechSurface() {
     return () => cleanups.forEach((cleanup) => cleanup());
   }, []);
 
+  useLayoutEffect(() => {
+    const measured = Math.ceil(measureRef.current?.getBoundingClientRect().height ?? 0);
+    if (measured > 0 && measured !== measuredTextHeight) setMeasuredTextHeight(measured);
+  }, [measuredTextHeight, visibleText, preferredWidth]);
+
   useEffect(() => {
     void resizeSpeechSurface(dimensions.width, dimensions.height);
   }, [dimensions.height, dimensions.width]);
 
+  useEffect(
+    () => () => {
+      window.clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
+  async function copyResponse() {
+    if (!active) return;
+    await navigator.clipboard.writeText(active);
+    setCopied(true);
+    window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(false), 1_400);
+  }
+
   const responseKey = streamMeta?.requestId ?? history[index]?.requestId ?? error ?? 'thinking';
+  const activeTask = streamMeta?.task ?? history[index]?.task ?? '';
+  const bubbleKind = activeTask === 'DRAFT_REPLY' ? 'reply' : 'explanation';
 
   return (
     <main
-      className={`speech-surface speech-surface--tail-${anchor.side}`}
-      style={{ '--speech-tail-y': `${anchor.tailY}px` } as CSSProperties}
+      className={`speech-surface speech-surface--tail-${anchor.side}${browserPreview ? ' speech-surface--preview' : ''}`}
+      style={
+        {
+          '--speech-tail-y': `${anchor.tailY}px`,
+          width: browserPreview ? `${dimensions.width}px` : undefined,
+          height: browserPreview ? `${dimensions.height}px` : undefined,
+        } as CSSProperties
+      }
     >
+      <p
+        aria-hidden="true"
+        className="speech-measurer"
+        ref={measureRef}
+        style={{ width: preferredWidth - SPEECH_CONTENT_INSET }}
+      >
+        {visibleText}
+      </p>
       <div className="speech-tail" />
-      <article className="speech-bubble" aria-live="polite" key={responseKey}>
+      <article
+        className={`speech-bubble speech-bubble--${bubbleKind}`}
+        aria-live="polite"
+        key={responseKey}
+      >
         <div className="speech-copy">
           {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
         </div>
-        <footer>
-          <button
-            disabled={!active}
-            onClick={() => active && navigator.clipboard.writeText(active)}
-            title="Copy response"
-            type="button"
-          >
-            <Copy size={16} />
-          </button>
-          <button
-            onClick={() => void emit('pop://variant-requested')}
-            title="New variant"
-            type="button"
-          >
-            <RefreshCw size={16} />
-          </button>
-          <span>{history.length ? `${index + 1}/${history.length}` : ''}</span>
-          <button
-            onClick={() => {
-              void hideCurrentSurface();
-              void emit('pop://speech-collapsed');
-            }}
-            title="Collapse response"
-            type="button"
-          >
-            <Minus size={16} />
-          </button>
-          <button onClick={() => void hideCurrentSurface()} title="Close response" type="button">
-            <X size={16} />
-          </button>
+        <footer className="speech-actions">
+          <div className="speech-action-group">
+            <button
+              aria-label="Copy response"
+              className={copied ? 'speech-action--success' : undefined}
+              disabled={!active}
+              onClick={() => void copyResponse()}
+              title={copied ? 'Copied' : 'Copy response'}
+              type="button"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+            <button
+              aria-label="Generate another response"
+              onClick={() => void emit('pop://variant-requested')}
+              title="New variant"
+              type="button"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          <span className="speech-position">
+            {history.length ? `${index + 1}/${history.length}` : ''}
+          </span>
+          <div className="speech-action-group">
+            <button
+              aria-label="Collapse response"
+              onClick={() => {
+                void hideCurrentSurface();
+                void emit('pop://speech-collapsed');
+              }}
+              title="Collapse response"
+              type="button"
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              aria-label="Close response"
+              onClick={() => void hideCurrentSurface()}
+              title="Close response"
+              type="button"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </footer>
       </article>
     </main>

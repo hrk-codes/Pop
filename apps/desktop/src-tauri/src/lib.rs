@@ -180,11 +180,29 @@ fn calculate_anchor(
     )
 }
 
+fn visible_avatar_bounds(
+    origin: PhysicalPosition<i32>,
+    window_size: tauri::PhysicalSize<u32>,
+    scale: f64,
+) -> (i32, i32, u32, u32) {
+    let desired_inset = (20.0 * scale).round() as u32;
+    let inset_x = desired_inset.min(window_size.width.saturating_sub(1) / 2);
+    let inset_y = desired_inset.min(window_size.height.saturating_sub(1) / 2);
+    (
+        origin.x + inset_x as i32,
+        origin.y + inset_y as i32,
+        window_size.width.saturating_sub(inset_x * 2),
+        window_size.height.saturating_sub(inset_y * 2),
+    )
+}
+
 fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
     let avatar = app.get_webview_window("avatar").ok_or("AVATAR_NOT_FOUND")?;
     let target = app.get_webview_window(label).ok_or("SURFACE_NOT_FOUND")?;
     let origin = avatar.outer_position().map_err(|error| error.to_string())?;
-    let avatar_size = avatar.outer_size().map_err(|error| error.to_string())?;
+    let avatar_window_size = avatar.outer_size().map_err(|error| error.to_string())?;
+    let avatar_scale = avatar.scale_factor().map_err(|error| error.to_string())?;
+    let avatar_bounds = visible_avatar_bounds(origin, avatar_window_size, avatar_scale);
     let target_size = target.outer_size().map_err(|error| error.to_string())?;
     let monitor = avatar
         .current_monitor()
@@ -192,7 +210,7 @@ fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
         .ok_or("MONITOR_NOT_FOUND")?;
     let work_area = monitor.work_area();
     let (x, y) = calculate_anchor(
-        (origin.x, origin.y, avatar_size.width, avatar_size.height),
+        avatar_bounds,
         (target_size.width, target_size.height),
         (
             work_area.position.x,
@@ -207,13 +225,13 @@ fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
     if label == "speech" {
-        let side = if x >= origin.x + avatar_size.width as i32 {
+        let side = if x >= avatar_bounds.0 + avatar_bounds.2 as i32 {
             "left"
         } else {
             "right"
         };
         let scale = target.scale_factor().unwrap_or(1.0);
-        let avatar_center_y = origin.y + avatar_size.height as i32 / 2;
+        let avatar_center_y = avatar_bounds.1 + avatar_bounds.3 as i32 / 2;
         let tail_y = ((avatar_center_y - y) as f64 / scale)
             .clamp(24.0, (target_size.height as f64 / scale - 24.0).max(24.0));
         let _ = target.emit(
@@ -227,7 +245,20 @@ fn anchor_surface(app: &AppHandle, label: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod window_placement_tests {
-    use super::calculate_anchor;
+    use super::{calculate_anchor, visible_avatar_bounds};
+    use tauri::{PhysicalPosition, PhysicalSize};
+
+    #[test]
+    fn anchors_to_the_visible_avatar_instead_of_transparent_window_padding() {
+        assert_eq!(
+            visible_avatar_bounds(
+                PhysicalPosition::new(100, 200),
+                PhysicalSize::new(116, 116),
+                1.0
+            ),
+            (120, 220, 76, 76)
+        );
+    }
 
     #[test]
     fn opens_on_the_right_when_space_is_available() {

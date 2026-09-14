@@ -3,21 +3,27 @@ export interface SpeechDimensions {
   height: number;
 }
 
+export const SPEECH_CONTENT_INSET = 58;
+
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.max(minimum, Math.min(maximum, value));
 
-export function speechDimensions(text: string): SpeechDimensions {
+export function preferredSpeechWidth(text: string): number {
   const characters = [...text.trim()].length;
-  const width = characters <= 90 ? 286 : characters <= 320 ? 356 : characters <= 720 ? 430 : 500;
-  const charactersPerLine = Math.max(24, Math.floor((width - 52) / 7.4));
+  return characters <= 72 ? 292 : characters <= 260 ? 360 : characters <= 680 ? 424 : 488;
+}
+
+export function speechDimensions(text: string, measuredTextHeight?: number): SpeechDimensions {
+  const width = preferredSpeechWidth(text);
+  const charactersPerLine = Math.max(24, Math.floor((width - SPEECH_CONTENT_INSET) / 7.2));
   const lines = Math.max(
     1,
     text.split(/\r?\n/).reduce((count, paragraph) => {
       return count + Math.max(1, Math.ceil([...paragraph].length / charactersPerLine));
     }, 0),
   );
-  const textHeight = lines * 23;
-  const height = clamp(30 + textHeight + 48, 118, 680);
+  const textHeight = measuredTextHeight && measuredTextHeight > 0 ? measuredTextHeight : lines * 23;
+  const height = clamp(Math.ceil(textHeight + 84), 128, 680);
 
   return { width, height };
 }
