@@ -13,7 +13,7 @@ export function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
       left: {},
     };
   }
-  if (kind === 'SOCIAL_POST') {
+  if (kind === 'SOCIAL_POST' || kind === 'SELECTED_TEXT' || kind === 'ARTICLE_TEXT') {
     return {
       up: { task: 'EXPLAIN_TEXT' },
       down: { task: 'DRAFT_REPLY' },

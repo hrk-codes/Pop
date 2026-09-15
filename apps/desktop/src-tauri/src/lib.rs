@@ -423,6 +423,8 @@ fn task_matches_context(task: &str, kind: protocol::ContextKind) -> bool {
             | ("SHORTEN", protocol::ContextKind::DraftText)
             | ("DRAFT_REPLY", protocol::ContextKind::SocialPost)
             | ("DRAFT_REPLY", protocol::ContextKind::Conversation)
+            | ("DRAFT_REPLY", protocol::ContextKind::SelectedText)
+            | ("DRAFT_REPLY", protocol::ContextKind::ArticleText)
             | ("EXPLAIN_CODE", protocol::ContextKind::SelectedCode)
             | ("REVIEW_CODE", protocol::ContextKind::SelectedCode)
             | ("EXPLAIN_TEXT", protocol::ContextKind::SelectedText)
@@ -434,6 +436,32 @@ fn task_matches_context(task: &str, kind: protocol::ContextKind) -> bool {
             | ("SUMMARIZE", protocol::ContextKind::SocialPost)
             | ("SUMMARIZE", protocol::ContextKind::Conversation)
     )
+}
+
+#[cfg(test)]
+mod task_context_tests {
+    use super::{protocol::ContextKind, task_matches_context};
+
+    #[test]
+    fn selected_x_text_can_be_explained_or_used_for_a_reply() {
+        for kind in [
+            ContextKind::SocialPost,
+            ContextKind::SelectedText,
+            ContextKind::ArticleText,
+        ] {
+            assert!(task_matches_context("EXPLAIN_TEXT", kind));
+            assert!(task_matches_context("DRAFT_REPLY", kind));
+        }
+    }
+
+    #[test]
+    fn writing_drafts_do_not_cross_into_reply_context() {
+        assert!(task_matches_context(
+            "IMPROVE_WRITING",
+            ContextKind::DraftText
+        ));
+        assert!(!task_matches_context("DRAFT_REPLY", ContextKind::DraftText));
+    }
 }
 
 #[tauri::command]

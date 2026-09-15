@@ -7,13 +7,21 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use zeroize::Zeroizing;
 
-const TEXT_PROMPT_VERSION: &str = "pop-text-v2";
+const TEXT_PROMPT_VERSION: &str = "pop-text-v4";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceLength {
     Short,
     Medium,
     Long,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplyProfile {
+    QuickQuestion,
+    Casual,
+    Conversational,
+    Analytical,
 }
 
 #[derive(Debug)]
@@ -29,6 +37,50 @@ fn source_length(text: &str) -> SourceLength {
         0..=220 => SourceLength::Short,
         221..=900 => SourceLength::Medium,
         _ => SourceLength::Long,
+    }
+}
+
+fn reply_profile(text: &str) -> ReplyProfile {
+    let characters = text.chars().count();
+    let words = text.split_whitespace().count();
+    let sentences = text
+        .chars()
+        .filter(|character| matches!(character, '.' | '!' | '?'))
+        .count();
+    let lower = text.to_lowercase();
+    let analytical_signal = [
+        "algorithm",
+        "architecture",
+        "database",
+        "evidence",
+        "latency",
+        "performance",
+        "privacy",
+        "research",
+        "security",
+        "strategy",
+        "system",
+        "tradeoff",
+    ]
+    .iter()
+    .any(|signal| lower.contains(signal));
+
+    if text.contains('?') && characters <= 220 {
+        ReplyProfile::QuickQuestion
+    } else if characters >= 450 || sentences >= 4 || analytical_signal {
+        ReplyProfile::Analytical
+    } else if characters <= 180 && words <= 32 {
+        ReplyProfile::Casual
+    } else {
+        ReplyProfile::Conversational
+    }
+}
+
+fn reply_character_limit(profile: ReplyProfile) -> usize {
+    match profile {
+        ReplyProfile::QuickQuestion | ReplyProfile::Casual => 110,
+        ReplyProfile::Conversational => 160,
+        ReplyProfile::Analytical => 220,
     }
 }
 
@@ -49,23 +101,39 @@ fn prompt_plan(task: &str, text: &str) -> Result<PromptPlan, String> {
             max_completion_tokens: 640,
         }),
         "DRAFT_REPLY" => {
-            let response_shape = match length {
-                SourceLength::Short => {
-                    "The source is brief. Write one crisp sentence, usually 45-120 characters. Match its pace and do not over-explain."
-                }
-                SourceLength::Medium => {
-                    "Write one or two compact sentences, usually 80-180 characters. Develop one useful angle instead of reacting to every detail."
-                }
-                SourceLength::Long => {
-                    "Write one or two focused sentences, usually 130-250 characters. Respond to the central idea, not the entire passage."
-                }
+            let profile = reply_profile(text);
+            let (instruction, response_shape, temperature, max_completion_tokens) = match profile {
+                ReplyProfile::QuickQuestion => (
+                    "Answer the actual question immediately, like a quick-minded person joining the thread. Choose one useful answer or instinct. If the wording is playful, light wit is welcome; never force a joke or dodge the question.",
+                    "Return one natural line, usually 20-90 characters and never more than 110 characters.",
+                    0.76,
+                    512,
+                ),
+                ReplyProfile::Casual => (
+                    "React with a short, instinctive human response that matches the source's energy. Be specific enough to feel real. A small joke, surprise, or playful edge is useful only when the source invites it.",
+                    "Return one punchy line, usually 20-90 characters and never more than 110 characters.",
+                    0.82,
+                    512,
+                ),
+                ReplyProfile::Conversational => (
+                    "Join the conversation naturally. Respond to the real point and add exactly one useful angle, concrete connection, or sincere question. Do not summarize or praise the post generically.",
+                    "Return one compact sentence, or two very short sentences, usually 45-140 characters and never more than 160 characters.",
+                    0.68,
+                    768,
+                ),
+                ReplyProfile::Analytical => (
+                    "Silently analyze the selection before writing: identify its central claim, strongest support, and practical implication. Then contribute one precise observation, useful consequence, or respectful challenge instead of summarizing it. Treat partial or omitted article text as incomplete context, stay strictly grounded in what is present, and never invent evidence or perform expertise.",
+                    "Return one or two tight sentences, usually 80-190 characters and never more than 220 characters. Depth must come from the idea, not extra length.",
+                    0.5,
+                    1_536,
+                ),
             };
 
             Ok(PromptPlan {
-                instruction: "Join the conversation like a thoughtful, informed person. Respond to the actual point, then add one grounded observation, useful connection, or sincere question. Make it lively enough to invite a real response. Never merely summarize, flatter the author, manufacture expertise, or invent a fact.",
+                instruction,
                 response_shape,
-                temperature: 0.72,
-                max_completion_tokens: 640,
+                temperature,
+                max_completion_tokens,
             })
         }
         "EXPLAIN_TEXT" => {
@@ -80,7 +148,7 @@ fn prompt_plan(task: &str, text: &str) -> Result<PromptPlan, String> {
                 ),
                 SourceLength::Long => (
                     "Use at most two short paragraphs, about 90-150 words. Distill the central idea and the most important implication; do not walk through every sentence.",
-                    1_024,
+                    1_536,
                 ),
             };
 
@@ -106,7 +174,7 @@ fn prompt_plan(task: &str, text: &str) -> Result<PromptPlan, String> {
 }
 
 fn variant_guidance(task: &str, variant: u8) -> &'static str {
-    match (task, variant % 3) {
+    match (task, variant % 6) {
         ("EXPLAIN_TEXT", 0) => {
             "Give the clearest plain-language reading and identify why the idea matters."
         }
@@ -116,12 +184,21 @@ fn variant_guidance(task: &str, variant: u8) -> &'static str {
         ("EXPLAIN_TEXT", _) => {
             "Use a different framing or compact analogy that makes the idea click without losing accuracy."
         }
-        ("DRAFT_REPLY", 0) => "Add one practical observation that moves the conversation forward.",
+        ("DRAFT_REPLY", 0) => "Lead with the most direct, instinctive response to the source.",
         ("DRAFT_REPLY", 1) => {
-            "Explore the most interesting implication and, only if natural, end with a specific question."
+            "Add one knowledgeable implication or practical consequence the source leaves unsaid."
+        }
+        ("DRAFT_REPLY", 2) => {
+            "Use a lightly witty or surprising angle only if the source's tone makes that natural; otherwise be crisp and unexpected."
+        }
+        ("DRAFT_REPLY", 3) => {
+            "Offer a respectful counter-angle or useful tension instead of automatic agreement."
+        }
+        ("DRAFT_REPLY", 4) => {
+            "Ask one sharp, specific question only if it genuinely advances the conversation."
         }
         ("DRAFT_REPLY", _) => {
-            "Offer a fresh extension or respectful counter-angle rather than repeating the obvious response."
+            "Make one concise connection or analogy that gives the conversation a fresh direction."
         }
         _ => "Produce a fresh version while preserving the requested meaning and voice.",
     }
@@ -148,15 +225,15 @@ fn clean_model_output(output: &str, task: &str) -> String {
     cleaned
 }
 
-fn fit_x_reply(output: &str) -> String {
-    if output.chars().count() <= 280 {
+fn fit_x_reply(output: &str, character_limit: usize) -> String {
+    if output.chars().count() <= character_limit {
         return output.to_string();
     }
 
-    let candidate: String = output.chars().take(280).collect();
+    let candidate: String = output.chars().take(character_limit).collect();
     let mut sentence_boundary = None;
     for (index, character) in candidate.char_indices() {
-        if matches!(character, '.' | '!' | '?') && index >= 80 {
+        if matches!(character, '.' | '!' | '?') && index >= character_limit / 3 {
             sentence_boundary = Some(index + character.len_utf8());
         }
     }
@@ -288,6 +365,11 @@ impl GroqProvider {
         let response = self
             .client
             .post("https://api.groq.com/openai/v1/chat/completions")
+            .timeout(Duration::from_secs(if prompt.chars().count() > 4_000 {
+                50
+            } else {
+                30
+            }))
             .bearer_auth(self.api_key.as_str())
             .json(&GroqRequest {
                 model: &self.model,
@@ -387,7 +469,7 @@ impl GroqProvider {
             return Err("GROQ_RESPONSE_EMPTY".to_owned());
         }
         let output = if task == "DRAFT_REPLY" {
-            fit_x_reply(&output)
+            fit_x_reply(&output, reply_character_limit(reply_profile(text)))
         } else {
             output
         };
@@ -413,15 +495,37 @@ mod tests {
     }
 
     #[test]
+    fn selects_reply_depth_without_an_extra_model_call() {
+        assert_eq!(
+            reply_profile("AI or cloud next?"),
+            ReplyProfile::QuickQuestion
+        );
+        assert_eq!(reply_profile("Shipping today."), ReplyProfile::Casual);
+        assert_eq!(
+            reply_profile(
+                "The architecture reduces latency, but its security tradeoff needs evidence."
+            ),
+            ReplyProfile::Analytical
+        );
+        assert_eq!(
+            reply_profile(&"A detailed argument with consequences. ".repeat(20)),
+            ReplyProfile::Analytical
+        );
+    }
+
+    #[test]
     fn reply_guidance_scales_without_becoming_an_explanation() {
         let short = prompt_plan("DRAFT_REPLY", "Shipping today.").unwrap();
         let long = prompt_plan("DRAFT_REPLY", &"Long source text. ".repeat(80)).unwrap();
 
-        assert!(short.response_shape.contains("45-120 characters"));
-        assert!(long.response_shape.contains("130-250 characters"));
-        assert!(short.instruction.contains("Join the conversation"));
+        assert!(short.response_shape.contains("20-90 characters"));
+        assert!(long.response_shape.contains("80-190 characters"));
+        assert!(short.instruction.contains("instinctive human response"));
         assert!(!short.instruction.contains("Explain the selection"));
         assert!(short.temperature > 0.6);
+        assert!(long.temperature < short.temperature);
+        assert!(long.max_completion_tokens >= 1_024);
+        assert!(long.instruction.contains("incomplete context"));
     }
 
     #[test]
@@ -446,8 +550,8 @@ mod tests {
             "{} This sentence must not survive.",
             "Useful detail. ".repeat(24)
         );
-        let fitted = fit_x_reply(&oversized);
-        assert!(fitted.chars().count() <= 280);
+        let fitted = fit_x_reply(&oversized, 160);
+        assert!(fitted.chars().count() <= 160);
         assert!(fitted.ends_with('.'));
     }
 }

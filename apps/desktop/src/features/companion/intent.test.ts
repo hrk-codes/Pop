@@ -10,9 +10,9 @@ describe('POP intent routing', () => {
     expect(automaticTaskFor('ARTICLE_TEXT')).toBe('EXPLAIN_TEXT');
   });
 
-  it('offers replies only for social posts', () => {
+  it('routes Down to a reply for any selected X content', () => {
     expect(actionsFor('SOCIAL_POST').down.task).toBe('DRAFT_REPLY');
-    expect(actionsFor('SELECTED_TEXT').down.task).toBe('EXPLAIN_TEXT');
-    expect(actionsFor('ARTICLE_TEXT').down.task).toBe('EXPLAIN_TEXT');
+    expect(actionsFor('SELECTED_TEXT').down.task).toBe('DRAFT_REPLY');
+    expect(actionsFor('ARTICLE_TEXT').down.task).toBe('DRAFT_REPLY');
   });
 });

@@ -19,6 +19,10 @@ messages and through a Chrome alarm, so starting POP after Chrome does not requi
 After rebuilding this unpacked adapter, click **Reload** on its extension card and reload the X tab.
 It never posts, types, clicks, reads cookies, captures screenshots, or stores raw X content.
 
-After a short stability pause, POP routes an X post to reply drafting, general selected text to an
-explanation, and an active draft to local writing analysis. Exact duplicate context is suppressed so
-an open response is not replaced or dismissed by connection heartbeats.
+X pages use short-lived runtime messages instead of holding a persistent extension port. This keeps
+Chrome's back/forward cache compatible and avoids closed-channel errors during X navigation.
+
+After a short stability pause, POP explains selected X text and runs local writing analysis for an
+active draft. With selected text still active, Up requests another explanation and Down drafts a
+reply. Exact duplicate context is suppressed so an open response is not replaced by connection
+heartbeats.

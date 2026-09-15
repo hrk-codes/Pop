@@ -7,7 +7,11 @@ import {
 
 type ContentMessage =
   | { type: 'POP_CONTEXT'; observation: ContextObservation }
-  | { type: 'POP_ACTION'; direction: 'up' | 'down' | 'left' | 'right' }
+  | {
+      type: 'POP_ACTION';
+      direction: 'up' | 'down' | 'left' | 'right';
+      observation: ContextObservation;
+    }
   | { type: 'POP_GET_CONTROL' };
 type PopupMessage = { type: 'POP_LOOPBACK_GRANTED'; control: Control } | { type: 'POP_SHOW' };
 type Transport = 'native' | 'loopback' | null;
@@ -23,7 +27,6 @@ export default defineBackground(() => {
   let flushingLoopback = false;
   let lastNativeError = '';
   const pending: ProtocolEnvelope[] = [];
-  const contentPorts = new Set<chrome.runtime.Port>();
 
   function envelope(message: Pick<ProtocolEnvelope, 'type' | 'payload'>): ProtocolEnvelope {
     return {
@@ -36,20 +39,16 @@ export default defineBackground(() => {
   }
 
   function broadcastControl() {
-    for (const contentPort of contentPorts) {
-      try {
-        contentPort.postMessage({ type: 'POP_CONTROL', control });
-      } catch {
-        contentPorts.delete(contentPort);
-      }
-    }
-    void chrome.tabs.query({ url: 'https://x.com/*' }).then((tabs) => {
-      for (const tab of tabs)
-        if (tab.id)
-          void chrome.tabs
-            .sendMessage(tab.id, { type: 'POP_CONTROL', control })
-            .catch(() => undefined);
-    });
+    void chrome.tabs
+      .query({ url: 'https://x.com/*' })
+      .then((tabs) => {
+        for (const tab of tabs)
+          if (tab.id)
+            void chrome.tabs
+              .sendMessage(tab.id, { type: 'POP_CONTROL', control })
+              .catch(() => undefined);
+      })
+      .catch(() => undefined);
   }
 
   function acceptControl(value: unknown, source: Exclude<Transport, null>): boolean {
@@ -182,6 +181,7 @@ export default defineBackground(() => {
       control.monitoringEnabled &&
       control.xEnabled
     ) {
+      send(envelope({ type: 'CONTEXT', payload: message.observation }));
       send(
         envelope({
           type: 'UI_COMMAND',
@@ -214,25 +214,6 @@ export default defineBackground(() => {
       return false;
     },
   );
-  chrome.runtime.onConnect.addListener((contentPort) => {
-    if (
-      contentPort.name !== 'pop-x-context' ||
-      !contentPort.sender?.tab?.url?.startsWith('https://x.com/')
-    ) {
-      contentPort.disconnect();
-      return;
-    }
-    contentPorts.add(contentPort);
-    contentPort.onMessage.addListener((message: ContentMessage) => {
-      handleContentMessage(message, contentPort.sender?.tab?.url, (value) =>
-        contentPort.postMessage({ type: 'POP_CONTROL', control: value }),
-      );
-    });
-    contentPort.onDisconnect.addListener(() => contentPorts.delete(contentPort));
-    contentPort.postMessage({ type: 'POP_CONTROL', control });
-    connectNative();
-    void syncLoopback();
-  });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== reconnectAlarm) return;
     if (transport === 'native' && nativeReady) {

@@ -6,24 +6,30 @@ POP combines a serious work assistant with a small, expressive desktop presence.
 
 ### Task behavior
 
-Task behavior begins with approved context and follows the normal POP policy path. It can explain, improve, summarize, or draft a reply. Completed task responses remain visible for an adaptive 30 to 120 seconds. Hovering the bubble pauses dismissal. The result remains available from the indicator beside POP after the bubble closes.
+Task behavior begins with approved context and follows the normal POP policy path. It can explain, improve, summarize, or draft a reply. Completed task responses use an adaptive 10 to 90 second reading period: a short two-line answer leaves promptly, while a dense explanation remains available longer. The deadline is absolute so a bubble cannot remain stuck open merely because it appeared beneath the pointer. The result remains available from the indicator beside POP after the bubble closes.
 
 ### Ambient behavior
 
-Ambient behavior uses a local, reviewed message library. It does not call Groq, inspect page text, or write memory. POP may offer one short check-in after a three-to-six-minute cooldown when:
+Ambient behavior uses a local, reviewed message library. It does not call Groq, inspect page text, or write memory. POP may offer one short check-in after a 75-to-150-second cooldown when:
 
 - monitoring is enabled;
 - personality is enabled;
 - POP is not suspended or privacy-paused;
 - there is no active context;
-- no task has started recently; and
-- the user has paused input for at least 15 seconds but has not been away for more than eight minutes.
+- no task has started for at least 45 seconds; and
+- the user has paused input for at least 10 seconds but has not been away for more than eight minutes.
 
 Ambient messages close after 9 to 14 seconds. They may suggest a break or ask a playful question, but they cannot start music, open applications, or perform another action.
 
 ### Expression behavior
 
-The avatar maps trusted runtime states to visible expressions: sleeping, attentive, thinking, speaking, success, blocked, playful, curious, encouraging, and privacy. POP's eyes may follow the cursor while monitoring and personality are enabled. Native code reduces the global cursor position to a normalized gaze direction. Raw coordinates are not logged, persisted, or sent to an AI provider.
+The avatar maps trusted runtime states to visible expressions: sleeping, attentive, thinking, speaking, success, blocked, playful, mischievous, excited, dramatic, impatient, silly, curious, encouraging, and privacy. Mood messages alter the mouth, brows, cheeks, leaf, and body motion rather than changing text alone.
+
+Cursor gaze is strictly idle behavior. It runs only while monitoring and personality are enabled, no context or task is active, POP is not suspended or privacy-paused, and the work-state machine is idle or attentive. Work immediately centers the eyes and cancels idle gestures. Explanation, writing, and reply tasks use thoughtful, focused, and friendly mouth rhythms respectively. The first silent face performance begins after about 2.5 seconds, followed by a non-repeating eye, brow, leaf, or mouth expression every 6 to 14 seconds. POP's body remains stationary; personality never shakes or moves the avatar around the screen. These performances never open a text box, inspect content, or call a model.
+
+Long selections are bounded locally before they cross the adapter bridge. When an excerpt exceeds the protocol limit, POP preserves its opening and conclusion and marks the omitted middle instead of silently discarding the ending. Long-form replies receive a larger private reasoning budget, a longer request deadline, and strict grounding instructions; the visible result is still limited to a compact, useful contribution.
+
+Native code reduces the global cursor position to a normalized gaze direction. Raw coordinates are not logged, persisted, or sent to an AI provider.
 
 ## Privacy Shield
 

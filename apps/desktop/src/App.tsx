@@ -22,13 +22,12 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from 'react';
 
-import { PopAvatar } from './features/companion/PopAvatar';
+import { PopAvatar, type WorkExpressionStyle } from './features/companion/PopAvatar';
 import {
   actionsFor,
   automaticTaskFor,
@@ -39,11 +38,17 @@ import { companionMachine, type ExpressionState } from './features/companion/mac
 import {
   GOODBYE_MOMENT,
   WELCOME_MOMENT,
+  canRunIdleBehavior,
   nextAmbientDelayMs,
   nextCompanionMoment,
+  nextIdleGesture,
+  nextIdleGestureDelayMs,
+  nextIdleMood,
   responseLifetimeMs,
   type CompanionMoment,
   type CompanionMood,
+  type IdleGesture,
+  type IdleMood,
 } from './features/companion/personality';
 import {
   SPEECH_CONTENT_INSET,
@@ -90,6 +95,33 @@ type ResultPayload = {
 };
 type SpeechAnchor = { side: 'left' | 'right'; tailY: number };
 
+const EXPRESSION_PREVIEWS: readonly ExpressionState[] = [
+  'sleeping',
+  'idle',
+  'attentive',
+  'thinking',
+  'speaking',
+  'success',
+  'playful',
+  'mischievous',
+  'excited',
+  'dramatic',
+  'impatient',
+  'silly',
+  'curious',
+  'encouraging',
+  'uncertain',
+  'blocked',
+  'privacy',
+];
+const GESTURE_PREVIEWS: readonly IdleGesture[] = ['bounce', 'peek', 'squint', 'tilt'];
+
+function previewValue<T extends string>(key: string, allowed: readonly T[]): T | null {
+  if (isTauriRuntime()) return null;
+  const value = new URLSearchParams(location.search).get(key);
+  return allowed.includes(value as T) ? (value as T) : null;
+}
+
 function appListen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
   if (!isTauriRuntime()) return Promise.resolve(() => undefined);
   return listen<T>(event, (message) => handler(message.payload));
@@ -131,8 +163,12 @@ function AvatarSurface() {
   const [personalityEnabled, setPersonalityEnabled] = useState(true);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [ambientMood, setAmbientMood] = useState<CompanionMood | null>(null);
+  const [idleMood, setIdleMood] = useState<IdleMood | null>(null);
+  const [idleGesture, setIdleGesture] = useState<IdleGesture | null>(null);
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const [state, send] = useMachine(companionMachine);
+  const [workActive, setWorkActive] = useState(false);
+  const [workStyle, setWorkStyle] = useState<WorkExpressionStyle>('thoughtful');
   const [resultReady, setResultReady] = useState(false);
   const lastTask = useRef<CompanionTask | null>(null);
   const automaticTimer = useRef<number | undefined>(undefined);
@@ -141,25 +177,30 @@ function AvatarSurface() {
   const variantCounts = useRef<Partial<Record<CompanionTask, number>>>({});
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
-  const activateRef = useRef<(direction: Direction) => void>(() => undefined);
+  const activateRef = useRef<(direction: Direction, snapshot?: RuntimeSnapshot) => void>(
+    () => undefined,
+  );
   const clickTimer = useRef<number | undefined>(undefined);
   const chatterTimer = useRef<number | undefined>(undefined);
   const moodTimer = useRef<number | undefined>(undefined);
+  const gestureTimer = useRef<number | undefined>(undefined);
+  const gestureClearTimer = useRef<number | undefined>(undefined);
   const runtimeRef = useRef(runtime);
   const personalityEnabledRef = useRef(personalityEnabled);
   const previousMonitoring = useRef<boolean | null>(null);
   const lastMomentId = useRef<string | null>(null);
+  const lastIdleGesture = useRef<IdleGesture | null>(null);
+  const lastIdleMood = useRef<IdleMood | null>(null);
   const lastWorkAt = useRef(Date.now());
-  const actions = useMemo(
-    () => actionsFor(runtime.currentContext?.observation.kind),
-    [runtime.currentContext?.observation.kind],
-  );
-  const assistanceEnabled = Boolean(
-    runtime.permissions.monitoringEnabled &&
-    runtime.permissions.platforms.X &&
-    !runtime.suspended &&
-    !runtime.privacyPaused,
-  );
+  const idleBehaviorEnabled = canRunIdleBehavior({
+    personalityEnabled,
+    monitoringEnabled: runtime.permissions.monitoringEnabled,
+    suspended: runtime.suspended,
+    privacyPaused: runtime.privacyPaused,
+    hasContext: Boolean(runtime.currentContext),
+    workActive,
+    expression: state.context.expression,
+  });
 
   useEffect(() => {
     runtimeRef.current = runtime;
@@ -172,6 +213,7 @@ function AvatarSurface() {
   const shareCompanionMoment = useCallback((moment: CompanionMoment) => {
     if (!personalityEnabledRef.current) return;
     lastMomentId.current = moment.id;
+    setIdleMood(null);
     setAmbientMood(moment.mood);
     window.clearTimeout(moodTimer.current);
     moodTimer.current = window.setTimeout(() => setAmbientMood(null), moment.lifetimeMs);
@@ -181,11 +223,22 @@ function AvatarSurface() {
   const runTask = useCallback(
     async (task: CompanionTask) => {
       lastWorkAt.current = Date.now();
+      setWorkActive(true);
+      setWorkStyle(
+        task === 'DRAFT_REPLY'
+          ? 'friendly'
+          : task === 'IMPROVE_WRITING' || task === 'CHECK_WRITING' || task === 'SHORTEN'
+            ? 'focused'
+            : 'thoughtful',
+      );
+      setIdleGesture(null);
+      setIdleMood(null);
+      setGaze({ x: 0, y: 0 });
       lastTask.current = task;
       setResultReady(false);
       send({ type: 'REQUEST' });
-      await showSurface('speech');
       try {
+        await showSurface('speech');
         if (task === 'CHECK_WRITING') {
           const result = await checkWriting();
           await emit<ResultPayload>('pop://assistance-complete', {
@@ -209,6 +262,8 @@ function AvatarSurface() {
         send({ type: 'FAIL' });
         const message = errorText(error);
         if (message) await emit('pop://assistance-failed', message);
+      } finally {
+        setWorkActive(false);
       }
     },
     [send],
@@ -246,17 +301,20 @@ function AvatarSurface() {
       const enabled =
         snapshot.permissions.monitoringEnabled &&
         snapshot.permissions.platforms.X &&
-        !snapshot.suspended;
+        !snapshot.suspended &&
+        !snapshot.privacyPaused;
       if (enabled && task && fingerprint !== automaticFingerprint.current) {
         automaticFingerprint.current = fingerprint;
         automaticTimer.current = window.setTimeout(() => void runTask(task), 180);
       }
     }).then((cleanup) => cleanups.push(cleanup));
-    void onCloudActivity((active) => send({ type: active ? 'REQUEST' : 'STREAM_END' })).then(
-      (cleanup) => cleanups.push(cleanup),
-    );
+    void onCloudActivity((active) => {
+      setWorkActive(active);
+      send({ type: active ? 'REQUEST' : 'STREAM_END' });
+    }).then((cleanup) => cleanups.push(cleanup));
     void onAssistanceChunk(() => send({ type: 'CHUNK' })).then((cleanup) => cleanups.push(cleanup));
     void onAssistanceComplete(() => {
+      setWorkActive(false);
       setResultReady(true);
       send({ type: 'SUCCESS' });
     }).then((cleanup) => cleanups.push(cleanup));
@@ -267,7 +325,10 @@ function AvatarSurface() {
       if (lastTask.current) void runTask(lastTask.current);
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<Direction>('pop://avatar-action', (direction) => {
-      activateRef.current(direction);
+      void getRuntimeSnapshot().then((snapshot) => {
+        setRuntime(snapshot);
+        activateRef.current(direction, snapshot);
+      });
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<number>('pop://avatar-size', (value) => {
       if ([56, 76, 104].includes(value)) {
@@ -277,7 +338,10 @@ function AvatarSurface() {
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen<boolean>('pop://personality-updated', (value) => {
       setPersonalityEnabled(value);
-      if (!value) setAmbientMood(null);
+      if (!value) {
+        setAmbientMood(null);
+        setIdleMood(null);
+      }
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen('pop://companion-now', () => {
       shareCompanionMoment(nextCompanionMoment(lastMomentId.current));
@@ -285,6 +349,8 @@ function AvatarSurface() {
     return () => {
       window.clearTimeout(automaticTimer.current);
       window.clearTimeout(moodTimer.current);
+      window.clearTimeout(gestureTimer.current);
+      window.clearTimeout(gestureClearTimer.current);
       cleanups.forEach((cleanup) => cleanup());
     };
   }, [runTask, send, shareCompanionMoment]);
@@ -318,10 +384,10 @@ function AvatarSurface() {
           !snapshot.suspended &&
           !snapshot.privacyPaused &&
           !snapshot.currentContext &&
-          Date.now() - lastWorkAt.current > 120_000;
+          Date.now() - lastWorkAt.current > 45_000;
         const awareness = eligible ? await getCompanionAwareness().catch(() => null) : null;
         if (cancelled) return;
-        if (awareness && awareness.idleMs >= 15_000 && awareness.idleMs < 8 * 60_000) {
+        if (awareness && awareness.idleMs >= 10_000 && awareness.idleMs < 8 * 60_000) {
           shareCompanionMoment(nextCompanionMoment(lastMomentId.current));
           schedule(nextAmbientDelayMs());
         } else {
@@ -337,13 +403,40 @@ function AvatarSurface() {
   }, [personalityEnabled, shareCompanionMoment]);
 
   useEffect(() => {
-    if (
-      !isTauriRuntime() ||
-      !personalityEnabled ||
-      !runtime.permissions.monitoringEnabled ||
-      runtime.suspended ||
-      runtime.privacyPaused
-    ) {
+    window.clearTimeout(gestureTimer.current);
+    window.clearTimeout(gestureClearTimer.current);
+    if (!idleBehaviorEnabled) {
+      setIdleGesture(null);
+      setIdleMood(null);
+      return;
+    }
+    let cancelled = false;
+    const schedule = (delay: number) => {
+      gestureTimer.current = window.setTimeout(() => {
+        if (cancelled) return;
+        const gesture = nextIdleGesture(lastIdleGesture.current);
+        const mood = nextIdleMood(lastIdleMood.current);
+        lastIdleGesture.current = gesture;
+        lastIdleMood.current = mood;
+        setIdleGesture(gesture);
+        setIdleMood(mood);
+        gestureClearTimer.current = window.setTimeout(() => {
+          setIdleGesture(null);
+          setIdleMood(null);
+        }, 1_850);
+        schedule(nextIdleGestureDelayMs());
+      }, delay);
+    };
+    schedule(2_500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(gestureTimer.current);
+      window.clearTimeout(gestureClearTimer.current);
+    };
+  }, [idleBehaviorEnabled]);
+
+  useEffect(() => {
+    if (!isTauriRuntime() || !idleBehaviorEnabled) {
       setGaze({ x: 0, y: 0 });
       return;
     }
@@ -354,6 +447,8 @@ function AvatarSurface() {
       try {
         const awareness = await getCompanionAwareness();
         setGaze({ x: awareness.gazeX, y: awareness.gazeY });
+      } catch {
+        setGaze({ x: 0, y: 0 });
       } finally {
         polling = false;
       }
@@ -361,25 +456,26 @@ function AvatarSurface() {
     void updateGaze();
     const timer = window.setInterval(() => void updateGaze(), 180);
     return () => window.clearInterval(timer);
-  }, [
-    personalityEnabled,
-    runtime.permissions.monitoringEnabled,
-    runtime.privacyPaused,
-    runtime.suspended,
-  ]);
+  }, [idleBehaviorEnabled]);
 
   useEffect(() => {
     void resizeAvatarSurface(size);
   }, [size]);
 
-  function activate(direction: Direction) {
-    if (!assistanceEnabled) return;
+  function activate(direction: Direction, snapshot: RuntimeSnapshot = runtime) {
+    const enabled = Boolean(
+      snapshot.permissions.monitoringEnabled &&
+      snapshot.permissions.platforms.X &&
+      !snapshot.suspended &&
+      !snapshot.privacyPaused,
+    );
+    if (!enabled) return;
     window.clearTimeout(automaticTimer.current);
-    if (!runtime.currentContext) {
+    if (!snapshot.currentContext) {
       void showSurface('speech');
       void emit(
         'pop://assistance-failed',
-        runtime.connectedAdapters.includes('CHROME')
+        snapshot.connectedAdapters.includes('CHROME')
           ? 'Select text in an X post or type in an X draft, then try again.'
           : 'The X adapter is offline. Reload the POP extension and the X tab.',
       );
@@ -395,7 +491,7 @@ function AvatarSurface() {
       void showSurface('speech');
       return;
     }
-    const action = actions[direction];
+    const action = actionsFor(snapshot.currentContext.observation.kind)[direction];
     if (action.task) void runTask(action.task);
     else void toggleMenu();
   }
@@ -467,8 +563,9 @@ function AvatarSurface() {
     void toggleMenu();
   }
 
+  const activeMood = ambientMood ?? idleMood;
   const ambientExpression: ExpressionState | null =
-    ambientMood === 'sleepy' ? 'sleeping' : ambientMood;
+    activeMood === 'sleepy' ? 'sleeping' : activeMood;
   const expression: ExpressionState = runtime.privacyPaused
     ? 'privacy'
     : runtime.permissions.monitoringEnabled && !runtime.suspended
@@ -476,6 +573,8 @@ function AvatarSurface() {
         ? ambientExpression
         : state.context.expression
       : 'sleeping';
+  const previewExpression = previewValue('expression', EXPRESSION_PREVIEWS);
+  const previewGesture = previewValue('gesture', GESTURE_PREVIEWS);
   return (
     <main className="avatar-surface" onWheel={onWheel} tabIndex={0}>
       <button
@@ -492,7 +591,19 @@ function AvatarSurface() {
         type="button"
       >
         <span>
-          <PopAvatar expression={expression} gaze={gaze} size={size} />
+          <PopAvatar
+            expression={previewExpression ?? expression}
+            gaze={
+              previewExpression
+                ? { x: 0.85, y: -0.35 }
+                : idleBehaviorEnabled
+                  ? gaze
+                  : { x: 0, y: 0 }
+            }
+            gesture={previewGesture ?? (ambientMood ? null : idleGesture)}
+            size={size}
+            workStyle={workStyle}
+          />
         </span>
       </button>
       {resultReady && (
@@ -602,6 +713,20 @@ function SpeechSurface() {
     return () => cleanups.forEach((cleanup) => cleanup());
   }, []);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.isComposing) return;
+      const direction = (
+        { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as const
+      )[event.key as 'ArrowUp'];
+      if (!direction) return;
+      event.preventDefault();
+      void emit('pop://avatar-action', direction);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   useLayoutEffect(() => {
     const measured = Math.ceil(measureRef.current?.getBoundingClientRect().height ?? 0);
     if (measured > 0 && measured !== measuredTextHeight) setMeasuredTextHeight(measured);
@@ -687,8 +812,6 @@ function SpeechSurface() {
         className={`speech-bubble speech-bubble--${bubbleKind}`}
         aria-live="polite"
         key={responseKey}
-        onPointerEnter={() => window.clearTimeout(dismissTimer.current)}
-        onPointerLeave={restartDismissTimer}
       >
         <div className="speech-copy">
           {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}

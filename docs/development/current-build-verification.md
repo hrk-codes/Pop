@@ -80,12 +80,13 @@ and choose **Check Groq**. The menu reports status without showing the key.
 ## 6. Test a selected post
 
 1. Select text inside an X post.
-2. After the selection remains stable briefly, POP should draft a relevant reply automatically. No
+2. After the selection remains stable briefly, POP should explain the selection automatically. No
    arrow controls should appear.
-3. Click the upper part of the mascot for Explain, the lower part for Reply, or the right edge for
-   Summarize. The equivalent focused keyboard actions are Up, Down, and Right. After generating, use
-   the left and right edges, or focused Left and Right keys, to navigate variants.
-4. Confirm the response remains visible until you close it, collapse it, or select new context.
+3. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
+   a reply. The same commands work while POP's avatar or response bubble has keyboard focus. Click the
+   upper or lower part of the mascot for the pointer equivalents.
+4. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
+   the pointer is resting over it. Close and collapse remain available as immediate controls.
 5. Collapse the response with its minus button, then click the coral result dot to reopen it.
 
 Selecting text outside an X post should automatically produce an explanation instead of a reply. Its

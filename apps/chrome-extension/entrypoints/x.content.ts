@@ -2,14 +2,27 @@ import type { ContextKind, ContextObservation } from '@pop/protocol';
 
 type Control = { monitoringEnabled: boolean; xEnabled: boolean };
 
+const MAX_CONTEXT_CHARACTERS = 8000;
+
+function boundContext(text: string): string {
+  const characters = [...text];
+  if (characters.length <= MAX_CONTEXT_CHARACTERS) return text;
+
+  const omission = '\n\n[Middle of selection omitted locally]\n\n';
+  const omissionLength = [...omission].length;
+  const available = MAX_CONTEXT_CHARACTERS - omissionLength;
+  const headLength = Math.floor(available * 0.68);
+  return `${characters.slice(0, headLength).join('')}${omission}${characters
+    .slice(characters.length - (available - headLength))
+    .join('')}`;
+}
+
 export default defineContentScript({
   matches: ['https://x.com/*'],
   runAt: 'document_idle',
   main() {
     let control: Control = { monitoringEnabled: false, xEnabled: false };
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    let bridge: chrome.runtime.Port | null = null;
     let lastFingerprint = '';
     let lastUrl = location.href;
     const enabled = () => control.monitoringEnabled && control.xEnabled;
@@ -33,13 +46,10 @@ export default defineContentScript({
     function textOf(element: HTMLElement): string {
       return (element instanceof HTMLTextAreaElement ? element.value : element.innerText).trim();
     }
-    function emit(kind: ContextKind, text: string) {
-      if (!enabled() || text.length < 2) return;
-      const bounded = [...text].slice(0, 8000).join('');
-      const fingerprint = `${kind}:${bounded}`;
-      if (fingerprint === lastFingerprint) return;
-      lastFingerprint = fingerprint;
-      const observation: ContextObservation = {
+    function observationFor(kind: ContextKind, text: string): ContextObservation | null {
+      if (!enabled() || text.length < 2) return null;
+      const bounded = boundContext(text);
+      return {
         kind,
         platformId: 'X',
         text: bounded,
@@ -48,10 +58,25 @@ export default defineContentScript({
         title: document.title.slice(0, 300),
         observedAt: Date.now(),
       };
+    }
+    function selectedObservation(): ContextObservation | null {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? '';
+      if (!text || !selection?.anchorNode) return null;
+      const node =
+        selection.anchorNode instanceof Element
+          ? selection.anchorNode
+          : selection.anchorNode.parentElement;
+      return observationFor(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
+    }
+    function emit(kind: ContextKind, text: string) {
+      const observation = observationFor(kind, text);
+      if (!observation) return;
+      const fingerprint = `${observation.kind}:${observation.text}`;
+      if (fingerprint === lastFingerprint) return;
+      lastFingerprint = fingerprint;
       void chrome.runtime.sendMessage({ type: 'POP_CONTEXT', observation }).catch(() => {
         if (lastFingerprint === fingerprint) lastFingerprint = '';
-        bridge = null;
-        connectBridge();
       });
     }
     function inspect(event?: Event) {
@@ -68,30 +93,19 @@ export default defineContentScript({
             if (text) emit('DRAFT_TEXT', text);
             return;
           }
-          const selection = window.getSelection();
-          const text = selection?.toString().trim() ?? '';
-          if (!text || !selection?.anchorNode) return;
-          const node =
-            selection.anchorNode instanceof Element
-              ? selection.anchorNode
-              : selection.anchorNode.parentElement;
-          emit(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
+          const observation = selectedObservation();
+          if (observation) emit(observation.kind, observation.text);
         },
-        candidate ? 650 : 180,
+        candidate ? 650 : 360,
       );
     }
 
-    function requestAction(direction: 'up' | 'down' | 'left' | 'right') {
-      const message = { type: 'POP_ACTION' as const, direction };
-      if (bridge) {
-        try {
-          bridge.postMessage(message);
-          return;
-        } catch {
-          bridge = null;
-        }
-      }
-      void chrome.runtime.sendMessage(message).catch(() => connectBridge());
+    function requestAction(
+      direction: 'up' | 'down' | 'left' | 'right',
+      observation: ContextObservation,
+    ) {
+      const message = { type: 'POP_ACTION' as const, direction, observation };
+      void chrome.runtime.sendMessage(message).catch(() => undefined);
     }
 
     function applyControl(value: Control) {
@@ -122,35 +136,6 @@ export default defineContentScript({
       }
     }
 
-    function connectBridge() {
-      if (bridge) return;
-      globalThis.clearTimeout(reconnectTimer);
-      try {
-        bridge = chrome.runtime.connect({ name: 'pop-x-context' });
-      } catch {
-        reconnectTimer = globalThis.setTimeout(connectBridge, 1_000);
-        return;
-      }
-      const currentBridge = bridge;
-      currentBridge.onMessage.addListener((message: unknown) => {
-        if (
-          typeof message === 'object' &&
-          message &&
-          (message as { type?: string }).type === 'POP_CONTROL'
-        ) {
-          applyControl((message as { control: Control }).control);
-        }
-      });
-      currentBridge.onDisconnect.addListener(() => {
-        void chrome.runtime.lastError;
-        if (bridge === currentBridge) bridge = null;
-        applyControl({ monitoringEnabled: false, xEnabled: false });
-        reconnectTimer = globalThis.setTimeout(connectBridge, 1_000);
-      });
-      currentBridge.postMessage({ type: 'POP_GET_CONTROL' });
-    }
-
-    connectBridge();
     chrome.runtime.onMessage.addListener((message: unknown) => {
       if (
         typeof message === 'object' &&
@@ -198,9 +183,7 @@ export default defineContentScript({
           event.altKey ||
           event.ctrlKey ||
           event.metaKey ||
-          event.shiftKey ||
-          editable(event.target) ||
-          editable(document.activeElement)
+          event.shiftKey
         ) {
           return;
         }
@@ -212,17 +195,16 @@ export default defineContentScript({
             ArrowRight: 'right',
           } as const
         )[event.key as 'ArrowUp'];
-        const selectedText = window.getSelection()?.toString().trim() ?? '';
-        if (!direction || selectedText.length < 2) return;
+        const observation = selectedObservation();
+        if (!direction || !observation) return;
         event.preventDefault();
         event.stopPropagation();
-        requestAction(direction);
+        requestAction(direction, observation);
       },
       true,
     );
     void refreshControl();
     globalThis.setInterval(() => {
-      if (!bridge) connectBridge();
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         lastFingerprint = '';
