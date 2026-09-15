@@ -2,6 +2,7 @@ import { useMachine } from '@xstate/react';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
+  BookOpen,
   Check,
   ChevronRight,
   Cloud,
@@ -128,7 +129,7 @@ function appListen<T>(event: string, handler: (payload: T) => void): Promise<() 
 }
 
 const EMPTY_RUNTIME: RuntimeSnapshot = {
-  permissions: { monitoringEnabled: false, platforms: { X: false } },
+  permissions: { monitoringEnabled: false, platforms: { X: false, WEB: false } },
   connectedAdapters: [],
   currentContext: null,
   providerConfigured: false,
@@ -291,7 +292,7 @@ function AvatarSurface() {
         automaticFingerprint.current = '';
         return;
       }
-      const fingerprint = `${context.observation.kind}:${context.observation.text}`;
+      const fingerprint = `${context.observation.platformId}:${context.observation.domain ?? ''}:${context.observation.kind}:${context.observation.text}`;
       if (fingerprint !== contextFingerprint.current) {
         contextFingerprint.current = fingerprint;
         variantCounts.current = {};
@@ -300,7 +301,8 @@ function AvatarSurface() {
       const task = automaticTaskFor(context.observation.kind);
       const enabled =
         snapshot.permissions.monitoringEnabled &&
-        snapshot.permissions.platforms.X &&
+        snapshot.currentContext !== null &&
+        snapshot.permissions.platforms[snapshot.currentContext.observation.platformId] &&
         !snapshot.suspended &&
         !snapshot.privacyPaused;
       if (enabled && task && fingerprint !== automaticFingerprint.current) {
@@ -464,10 +466,7 @@ function AvatarSurface() {
 
   function activate(direction: Direction, snapshot: RuntimeSnapshot = runtime) {
     const enabled = Boolean(
-      snapshot.permissions.monitoringEnabled &&
-      snapshot.permissions.platforms.X &&
-      !snapshot.suspended &&
-      !snapshot.privacyPaused,
+      snapshot.permissions.monitoringEnabled && !snapshot.suspended && !snapshot.privacyPaused,
     );
     if (!enabled) return;
     window.clearTimeout(automaticTimer.current);
@@ -476,11 +475,12 @@ function AvatarSurface() {
       void emit(
         'pop://assistance-failed',
         snapshot.connectedAdapters.includes('CHROME')
-          ? 'Select text in an X post or type in an X draft, then try again.'
-          : 'The X adapter is offline. Reload the POP extension and the X tab.',
+          ? 'Select text on an approved Chrome page, or type in an X draft, then try again.'
+          : 'The Chrome adapter is offline. Reload the POP extension and this tab.',
       );
       return;
     }
+    if (!snapshot.permissions.platforms[snapshot.currentContext.observation.platformId]) return;
     if (resultReady && direction === 'left') {
       void emit('pop://navigate-result', 'previous');
       void showSurface('speech');
@@ -952,18 +952,33 @@ function MenuSurface() {
           ? 'X access is off'
           : !adapterConnected
             ? 'Extension bridge offline'
-            : runtime.currentContext
+            : runtime.currentContext?.observation.platformId === 'X'
               ? `${runtime.currentContext.observation.kind.replaceAll('_', ' ').toLowerCase()} ready`
               : runtime.lastContextError
                 ? runtime.lastContextError.replaceAll('_', ' ').toLowerCase()
                 : 'Connected, waiting for X context';
+  const webStatus = runtime.privacyPaused
+    ? 'Privacy shield active'
+    : runtime.suspended
+      ? 'Paused in the system tray'
+      : !runtime.permissions.monitoringEnabled
+        ? 'Monitoring is off'
+        : !runtime.permissions.platforms.WEB
+          ? 'Web reading is off'
+          : !adapterConnected
+            ? 'Extension bridge offline'
+            : runtime.currentContext?.observation.platformId === 'WEB'
+              ? `${runtime.currentContext.observation.kind.replaceAll('_', ' ').toLowerCase()} ready`
+              : runtime.lastContextError
+                ? runtime.lastContextError.replaceAll('_', ' ').toLowerCase()
+                : 'Connected, waiting for a selection';
   return (
     <main className="menu-surface">
       <header>
         <PopAvatar expression="idle" size={34} />
         <div>
           <strong>POP</strong>
-          <span>Private X companion</span>
+          <span>Private desktop companion</span>
         </div>
         <div className="window-actions">
           <button onClick={() => void suspendToTray()} title="Minimize POP to tray" type="button">
@@ -993,7 +1008,7 @@ function MenuSurface() {
             type="checkbox"
           />
         </label>
-        <div className="menu-group x-assistance">
+        <div className="menu-group source-assistance">
           <div className="menu-row">
             <MessageCircle size={18} />
             <button
@@ -1049,7 +1064,7 @@ function MenuSurface() {
                     Summarize
                   </button>
                 </>
-              ) : runtime.currentContext ? (
+              ) : runtime.currentContext?.observation.platformId === 'X' ? (
                 <>
                   <button onClick={() => void triggerAvatarAction('up')} type="button">
                     Explain
@@ -1060,6 +1075,56 @@ function MenuSurface() {
                 </>
               ) : (
                 <span>Select a post or pause in an X draft to reveal actions.</span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="menu-group source-assistance">
+          <div className="menu-row">
+            <BookOpen size={18} />
+            <button
+              className="menu-disclosure"
+              onClick={() => setSection(section === 'web' ? null : 'web')}
+              type="button"
+            >
+              <span>
+                <strong>Chrome reading</strong>
+                <small>{webStatus}</small>
+              </span>
+            </button>
+            <input
+              aria-label="Allow selected text from Chrome"
+              checked={runtime.permissions.platforms.WEB}
+              onChange={(event) =>
+                void updatePlatformPermission('WEB', event.target.checked).then(setRuntime)
+              }
+              type="checkbox"
+            />
+            <button
+              aria-label="Show Chrome reading actions"
+              className="menu-chevron"
+              onClick={() => setSection(section === 'web' ? null : 'web')}
+              type="button"
+            >
+              <ChevronRight className={section === 'web' ? 'rotate' : ''} size={17} />
+            </button>
+          </div>
+          {section === 'web' && (
+            <div className="submenu context-actions">
+              {runtime.currentContext?.observation.platformId === 'WEB' ? (
+                <>
+                  <button onClick={() => void triggerAvatarAction('up')} type="button">
+                    Explain
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('down')} type="button">
+                    Respond
+                  </button>
+                  <button onClick={() => void triggerAvatarAction('right')} type="button">
+                    Summarize
+                  </button>
+                </>
+              ) : (
+                <span>Select text on a normal Chrome page to reveal actions.</span>
               )}
             </div>
           )}
@@ -1158,7 +1223,7 @@ function MenuSurface() {
         ))}
       </div>
       <footer>
-        <span>{adapterConnected ? 'X adapter connected' : 'X adapter offline'}</span>
+        <span>{adapterConnected ? 'Chrome adapter connected' : 'Chrome adapter offline'}</span>
         <button onClick={() => void suspendToTray()} title="Minimize POP to tray" type="button">
           <Minus size={16} />
         </button>

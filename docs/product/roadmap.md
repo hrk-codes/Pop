@@ -1,11 +1,12 @@
 # Roadmap
 
-## Current convergence: live POP on X
+## Current convergence: live POP in Chrome
 
 The earlier V0.1-V0.6 architecture work exposed a product-direction problem: a large control panel and
 manual pairing did not feel like an ambient companion. The active build converges the verified core
 pieces into a living avatar, native browser connection, contextual actions, streaming speech bubble,
-and X-only privacy boundary. Reliability here is the gate for every later platform.
+specialized X assistance, and deliberate-selection reading on ordinary web pages. Reliability and
+privacy here are the gate for every later platform.
 
 ## Archived V0.1: core platform
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u8 = 4;
+pub const PROTOCOL_VERSION: u8 = 5;
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
 pub const MAX_CONTEXT_CHARS: usize = 8_000;
 
@@ -15,6 +15,7 @@ pub enum AdapterSource {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlatformId {
     X,
+    Web,
     Google,
     Youtube,
     Whatsapp,
@@ -25,8 +26,9 @@ pub enum PlatformId {
 }
 
 impl PlatformId {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::X,
+        Self::Web,
         Self::Google,
         Self::Youtube,
         Self::Whatsapp,
@@ -39,6 +41,7 @@ impl PlatformId {
     pub fn setting_key(self) -> &'static str {
         match self {
             Self::X => "platform_x",
+            Self::Web => "platform_web",
             Self::Google => "platform_google",
             Self::Youtube => "platform_youtube",
             Self::Whatsapp => "platform_whatsapp",
@@ -52,6 +55,7 @@ impl PlatformId {
     pub fn expected_domain(self) -> Option<&'static str> {
         match self {
             Self::X => Some("x.com"),
+            Self::Web => None,
             Self::Google => Some("www.google.com"),
             Self::Youtube => Some("www.youtube.com"),
             Self::Whatsapp => Some("web.whatsapp.com"),
@@ -153,6 +157,7 @@ pub enum ServerMessage {
     Control {
         monitoring_enabled: bool,
         x_enabled: bool,
+        web_enabled: bool,
     },
     Ack {
         message_id: String,
@@ -170,7 +175,7 @@ mod tests {
     #[test]
     fn deserializes_chrome_context_envelope() {
         let envelope: ProtocolEnvelope = serde_json::from_value(serde_json::json!({
-            "version": 4,
+            "version": 5,
             "id": "d9428888-122b-11e1-b85c-61cd3cbb3210",
             "source": "CHROME",
             "type": "CONTEXT",
@@ -193,7 +198,7 @@ mod tests {
     #[test]
     fn deserializes_browser_arrow_command() {
         let envelope: ProtocolEnvelope = serde_json::from_value(serde_json::json!({
-            "version": 4,
+            "version": 5,
             "id": "d9428888-122b-11e1-b85c-61cd3cbb3210",
             "source": "CHROME",
             "type": "UI_COMMAND",
@@ -211,9 +216,11 @@ mod tests {
         let control = serde_json::to_value(ServerMessage::Control {
             monitoring_enabled: true,
             x_enabled: true,
+            web_enabled: true,
         })
         .expect("control response serializes");
         assert_eq!(control["monitoringEnabled"], true);
+        assert_eq!(control["webEnabled"], true);
         assert!(control.get("monitoring_enabled").is_none());
 
         let ack = serde_json::to_value(ServerMessage::Ack {

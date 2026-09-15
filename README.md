@@ -12,7 +12,7 @@ preview, and let the user copy it. POP never posts, clicks, types into X, or sen
   Next, and More without drawing controls around the mascot.
 - A compact double-click settings menu instead of a large dashboard.
 - A separate attached response bubble with streaming, copy, variants, collapse, and close controls.
-- An X-only WXT/Chrome MV3 adapter with sensitive-field blocking and short-lived context.
+- A permission-scoped WXT/Chrome MV3 adapter for selected web text and approved X drafts.
 - Chrome Native Messaging through a Windows-secured Rust host; there are no pairing codes.
 - Offline grammar correction through Harper and explicit cloud assistance through Groq.
 - SQLite preferences and AI audit metadata without raw drafts, selections, or generated responses.
@@ -51,7 +51,7 @@ pnpm check
 .\scripts\dev.ps1
 ```
 
-`dev.ps1` builds the X adapter, registers the native host for the current Windows user, clears stale
+`dev.ps1` builds the Chrome adapter, registers the native host for the current Windows user, clears stale
 development processes, and starts Tauri. The development terminal owns these processes, so closing
 it stops POP. For a terminal-independent personal build, run this once after `scripts\build.ps1`:
 

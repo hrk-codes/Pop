@@ -14,7 +14,21 @@ use crate::{
     storage::Store,
 };
 
-const CONTEXT_TTL_MS: u64 = 90_000;
+const DEFAULT_CONTEXT_TTL_MS: u64 = 90_000;
+
+fn context_ttl_ms(observation: &ContextObservation) -> u64 {
+    if !matches!(
+        observation.kind,
+        ContextKind::SelectedText | ContextKind::ArticleText | ContextKind::SocialPost
+    ) {
+        return DEFAULT_CONTEXT_TTL_MS;
+    }
+    match observation.text.chars().count() {
+        0..=600 => 120_000,
+        601..=1_500 => 180_000,
+        _ => 300_000,
+    }
+}
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -98,6 +112,32 @@ fn valid_source_platform(source: AdapterSource, platform: PlatformId) -> bool {
         AdapterSource::Chrome => !matches!(platform, PlatformId::Vscode | PlatformId::Cursor),
         AdapterSource::Vscode => matches!(platform, PlatformId::Vscode | PlatformId::Cursor),
     }
+}
+
+fn web_domain_allowed(domain: &str) -> bool {
+    let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+    if domain.is_empty() || domain == "x.com" || domain.ends_with(".x.com") {
+        return false;
+    }
+
+    const PRIVATE_DOMAINS: &[&str] = &[
+        "1password.com",
+        "accounts.google.com",
+        "account.microsoft.com",
+        "bitwarden.com",
+        "lastpass.com",
+        "login.live.com",
+        "mail.google.com",
+        "myaccount.google.com",
+        "outlook.live.com",
+        "outlook.office.com",
+        "passwords.google.com",
+        "paypal.com",
+        "photos.google.com",
+    ];
+    !PRIVATE_DOMAINS
+        .iter()
+        .any(|private| domain == *private || domain.ends_with(&format!(".{private}")))
 }
 
 impl PopCore {
@@ -217,6 +257,14 @@ impl PopCore {
         {
             return Err("DOMAIN_MISMATCH");
         }
+        if observation.platform_id == PlatformId::Web
+            && !observation
+                .domain
+                .as_deref()
+                .is_some_and(web_domain_allowed)
+        {
+            return Err("PRIVATE_WEB_DOMAIN");
+        }
         if source == AdapterSource::Chrome && observation.kind == ContextKind::SelectedCode {
             return Err("CONTEXT_KIND_DENIED");
         }
@@ -225,11 +273,12 @@ impl PopCore {
         }
 
         let accepted_at = now_ms();
+        let expires_at = accepted_at + context_ttl_ms(&observation);
         state.current_context = Some(ActiveContext {
             source,
             observation,
             accepted_at,
-            expires_at: accepted_at + CONTEXT_TTL_MS,
+            expires_at,
         });
         Ok(())
     }
@@ -346,5 +395,41 @@ impl PopCore {
             privacy_reason: state.privacy_reason.clone(),
             last_context_error: state.last_context_error.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod web_domain_tests {
+    use super::{context_ttl_ms, web_domain_allowed};
+    use crate::protocol::{ContextKind, ContextObservation, PlatformId};
+
+    #[test]
+    fn permits_normal_reading_pages() {
+        assert!(web_domain_allowed("www.ibm.com"));
+        assert!(web_domain_allowed("developer.mozilla.org"));
+    }
+
+    #[test]
+    fn rejects_specialized_x_and_private_web_surfaces() {
+        assert!(!web_domain_allowed("x.com"));
+        assert!(!web_domain_allowed("mail.google.com"));
+        assert!(!web_domain_allowed("vault.bitwarden.com"));
+        assert!(!web_domain_allowed("photos.google.com"));
+    }
+
+    #[test]
+    fn keeps_large_reading_context_available_for_follow_up_actions() {
+        let observation = ContextObservation {
+            kind: ContextKind::ArticleText,
+            platform_id: PlatformId::Web,
+            text: "word ".repeat(400),
+            application_id: "chrome".to_owned(),
+            domain: Some("www.ibm.com".to_owned()),
+            title: Some("Documentation".to_owned()),
+            language_id: None,
+            document_uri: None,
+            observed_at: 1,
+        };
+        assert_eq!(context_ttl_ms(&observation), 300_000);
     }
 }

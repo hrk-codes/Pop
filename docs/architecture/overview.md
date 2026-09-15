@@ -1,9 +1,9 @@
 # Architecture Overview
 
-POP's current executable is an X-first live desktop companion with one authority path.
+POP's current executable is a Chrome-reading desktop companion with one authority path.
 
 ```text
-X selection or draft
+Web selection or approved X draft
   -> WXT content script
   -> MV3 service worker
   -> Chrome Native Messaging
@@ -21,17 +21,18 @@ X selection or draft
 
 - **Avatar surface:** visualizes operational state and exposes contextual actions.
 - **Speech surface:** streams, copies, navigates, collapses, and closes temporary results.
-- **Menu surface:** changes monitoring, X, AI, personality, privacy, and window preferences.
+- **Menu surface:** changes monitoring, X, web reading, AI, personality, privacy, and window preferences.
 - **POP Core:** makes every security decision and owns accepted temporary context.
-- **X adapter:** observes bounded semantic snapshots only while Core says both switches are enabled.
+- **Chrome adapter:** observes deliberate bounded selections on approved web pages and paused X drafts
+  only while Core says the relevant switches are enabled.
 - **Native host:** authenticates Chrome to Core without exposing a localhost web server or user code.
 - **Provider layer:** turns explicit normalized tasks into local or remote previews.
 
 React is never an authority. Browser text and model output are never instructions. Disabling monitoring
-clears current context; changing X route or selection invalidates it; raw content is never durable.
+clears current context; changing route or selection invalidates it; raw content is never durable.
 
 ## Current boundary
 
-The runnable release is avatar + X context + local grammar + explicit Groq preview/copy. The editor
-adapter and V0.3-V0.6 visual, action, memory, tool, and workflow designs remain deferred until this
-interaction passes manual reliability and privacy gates.
+The runnable release is avatar + selected web/X context + local grammar + explicit Groq preview/copy.
+The editor adapter and V0.3-V0.6 visual, action, memory, tool, and workflow designs remain deferred
+until this interaction passes manual reliability and privacy gates.

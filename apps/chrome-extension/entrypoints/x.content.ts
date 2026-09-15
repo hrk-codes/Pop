@@ -1,31 +1,37 @@
 import type { ContextKind, ContextObservation } from '@pop/protocol';
+import { isPrivateWebHost, isXHost } from '../utils/page-policy';
+import { boundContext, classifySelection, selectionSettleDelay } from '../utils/selection';
 
-type Control = { monitoringEnabled: boolean; xEnabled: boolean };
-
-const MAX_CONTEXT_CHARACTERS = 8000;
-
-function boundContext(text: string): string {
-  const characters = [...text];
-  if (characters.length <= MAX_CONTEXT_CHARACTERS) return text;
-
-  const omission = '\n\n[Middle of selection omitted locally]\n\n';
-  const omissionLength = [...omission].length;
-  const available = MAX_CONTEXT_CHARACTERS - omissionLength;
-  const headLength = Math.floor(available * 0.68);
-  return `${characters.slice(0, headLength).join('')}${omission}${characters
-    .slice(characters.length - (available - headLength))
-    .join('')}`;
-}
+type Control = { monitoringEnabled: boolean; xEnabled: boolean; webEnabled: boolean };
 
 export default defineContentScript({
-  matches: ['https://x.com/*'],
+  matches: ['http://*/*', 'https://*/*'],
+  excludeMatches: [
+    '*://*.1password.com/*',
+    '*://accounts.google.com/*',
+    '*://account.microsoft.com/*',
+    '*://*.bitwarden.com/*',
+    '*://*.lastpass.com/*',
+    '*://login.live.com/*',
+    '*://mail.google.com/*',
+    '*://myaccount.google.com/*',
+    '*://outlook.live.com/*',
+    '*://outlook.office.com/*',
+    '*://passwords.google.com/*',
+    '*://*.paypal.com/*',
+    '*://photos.google.com/*',
+  ],
   runAt: 'document_idle',
   main() {
-    let control: Control = { monitoringEnabled: false, xEnabled: false };
+    let control: Control = { monitoringEnabled: false, xEnabled: false, webEnabled: false };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastFingerprint = '';
     let lastUrl = location.href;
-    const enabled = () => control.monitoringEnabled && control.xEnabled;
+    const xPage = () => isXHost(location.hostname);
+    const enabled = () =>
+      control.monitoringEnabled &&
+      !isPrivateWebHost(location.hostname) &&
+      (xPage() ? control.xEnabled : control.webEnabled);
 
     function sensitive(element: HTMLElement): boolean {
       const field = element instanceof HTMLInputElement ? element : null;
@@ -51,10 +57,10 @@ export default defineContentScript({
       const bounded = boundContext(text);
       return {
         kind,
-        platformId: 'X',
+        platformId: xPage() ? 'X' : 'WEB',
         text: bounded,
         applicationId: 'chrome',
-        domain: 'x.com',
+        domain: location.hostname,
         title: document.title.slice(0, 300),
         observedAt: Date.now(),
       };
@@ -67,7 +73,9 @@ export default defineContentScript({
         selection.anchorNode instanceof Element
           ? selection.anchorNode
           : selection.anchorNode.parentElement;
-      return observationFor(node?.closest('article') ? 'SOCIAL_POST' : 'SELECTED_TEXT', text);
+      const article = node?.closest('article, main, [role="main"]');
+      const kind = classifySelection(xPage(), Boolean(article), text.length);
+      return observationFor(kind, text);
     }
     function emit(kind: ContextKind, text: string) {
       const observation = observationFor(kind, text);
@@ -81,23 +89,24 @@ export default defineContentScript({
     }
     function inspect(event?: Event) {
       globalThis.clearTimeout(timer);
-      const candidate =
-        editable(event?.target ?? document.activeElement) ?? editable(document.activeElement);
-      timer = globalThis.setTimeout(
-        () => {
-          if (!enabled()) return;
-          const draft =
-            editable(event?.target ?? document.activeElement) ?? editable(document.activeElement);
-          if (draft) {
-            const text = textOf(draft);
-            if (text) emit('DRAFT_TEXT', text);
-            return;
-          }
-          const observation = selectedObservation();
-          if (observation) emit(observation.kind, observation.text);
-        },
-        candidate ? 650 : 360,
-      );
+      const candidate = xPage()
+        ? (editable(event?.target ?? document.activeElement) ?? editable(document.activeElement))
+        : null;
+      const selectedCharacters = window.getSelection()?.toString().trim().length ?? 0;
+      const settleDelay = selectionSettleDelay(Boolean(candidate), selectedCharacters);
+      timer = globalThis.setTimeout(() => {
+        if (!enabled()) return;
+        const draft = xPage()
+          ? (editable(event?.target ?? document.activeElement) ?? editable(document.activeElement))
+          : null;
+        if (draft) {
+          const text = textOf(draft);
+          if (text) emit('DRAFT_TEXT', text);
+          return;
+        }
+        const observation = selectedObservation();
+        if (observation) emit(observation.kind, observation.text);
+      }, settleDelay);
     }
 
     function requestAction(
@@ -127,12 +136,13 @@ export default defineContentScript({
         if (
           value &&
           typeof value.monitoringEnabled === 'boolean' &&
-          typeof value.xEnabled === 'boolean'
+          typeof value.xEnabled === 'boolean' &&
+          typeof value.webEnabled === 'boolean'
         ) {
           applyControl(value);
         }
       } catch {
-        applyControl({ monitoringEnabled: false, xEnabled: false });
+        applyControl({ monitoringEnabled: false, xEnabled: false, webEnabled: false });
       }
     }
 

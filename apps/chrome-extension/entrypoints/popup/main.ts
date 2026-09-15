@@ -29,13 +29,14 @@ async function connect() {
     const control: Control = {
       monitoringEnabled: message.monitoringEnabled,
       xEnabled: message.xEnabled,
+      webEnabled: message.webEnabled,
     };
     await chrome.runtime.sendMessage({ type: 'POP_LOOPBACK_GRANTED', control });
     setStatus(
       'connected',
-      control.monitoringEnabled && control.xEnabled
-        ? 'X assistance is ready.'
-        : 'Connected. Enable monitoring and X in POP.',
+      control.monitoringEnabled && (control.xEnabled || control.webEnabled)
+        ? 'Chrome assistance is ready.'
+        : 'Connected. Enable monitoring and a Chrome source in POP.',
     );
   } catch {
     setStatus('offline', 'Start POP, then try again.');

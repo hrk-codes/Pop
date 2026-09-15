@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type AdapterSource = 'CHROME';
-export type PlatformId = 'X';
+export type PlatformId = 'X' | 'WEB';
 export type ContextKind = 'DRAFT_TEXT' | 'SOCIAL_POST' | 'ARTICLE_TEXT' | 'SELECTED_TEXT';
 export type AssistanceTask =
   'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_REPLY' | 'SUMMARIZE' | 'SHORTEN';
@@ -88,7 +88,7 @@ export function isTauriRuntime(): boolean {
 export function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
   if (!isTauriRuntime())
     return Promise.resolve({
-      permissions: { monitoringEnabled: false, platforms: { X: false } },
+      permissions: { monitoringEnabled: false, platforms: { X: false, WEB: false } },
       connectedAdapters: [],
       currentContext: null,
       providerConfigured: false,

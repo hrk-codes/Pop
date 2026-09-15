@@ -406,7 +406,7 @@ button {
 .menu-group {
   border-top: 1px solid rgb(255 255 255 / 6%);
 }
-.x-assistance .menu-row {
+.source-assistance .menu-row {
   display: grid !important;
   grid-template-columns: 18px minmax(0, 1fr) 34px 28px;
 }

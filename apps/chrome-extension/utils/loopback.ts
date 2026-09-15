@@ -1,4 +1,4 @@
-export type Control = { monitoringEnabled: boolean; xEnabled: boolean };
+export type Control = { monitoringEnabled: boolean; xEnabled: boolean; webEnabled: boolean };
 
 export type LoopbackServerMessage =
   | ({ type: 'CONTROL' } & Control)

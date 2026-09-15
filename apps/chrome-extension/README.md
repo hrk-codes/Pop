@@ -1,8 +1,8 @@
-# POP X Adapter
+# POP Chrome Adapter
 
-This WXT/Chrome MV3 adapter observes bounded selections and paused drafts only on `x.com`. It prefers
-Chrome Native Messaging and falls back to POP's authenticated local loopback bridge when the native
-host is unavailable. It never asks the user to pair a rotating code.
+This WXT/Chrome MV3 adapter observes deliberate selections on normal HTTP/HTTPS pages and paused
+drafts on `x.com`. It prefers Chrome Native Messaging and falls back to POP's authenticated local
+loopback bridge when the native host is unavailable. It never asks the user to pair a rotating code.
 
 ```powershell
 pnpm --filter @pop/chrome-extension build
@@ -14,15 +14,21 @@ keeps the local extension ID stable at `fpkepfajehdejjbccjaecmbmdepkaddf`; no pr
 stored in the repository.
 
 The toolbar popup is only a connection diagnostic and a **Show POP** shortcut. The adapter sends
-nothing unless both Monitoring and X assistance are enabled in POP. Its MV3 worker reconnects on X
-messages and through a Chrome alarm, so starting POP after Chrome does not require a new pairing step.
-After rebuilding this unpacked adapter, click **Reload** on its extension card and reload the X tab.
-It never posts, types, clicks, reads cookies, captures screenshots, or stores raw X content.
+nothing unless Monitoring and the relevant X or Chrome-reading permission are enabled in POP. Its
+MV3 worker reconnects through context messages and a Chrome alarm, so starting POP after Chrome does
+not require a new pairing step. After rebuilding this unpacked adapter, click **Reload** on its
+extension card and reload the page being tested. It never posts, types, clicks, reads cookies,
+captures screenshots, or stores raw page content.
 
-X pages use short-lived runtime messages instead of holding a persistent extension port. This keeps
-Chrome's back/forward cache compatible and avoids closed-channel errors during X navigation.
+Pages use short-lived runtime messages instead of holding a persistent extension port. This keeps
+Chrome's back/forward cache compatible and avoids closed-channel errors during navigation.
 
-After a short stability pause, POP explains selected X text and runs local writing analysis for an
-active draft. With selected text still active, Up requests another explanation and Down drafts a
-reply. Exact duplicate context is suppressed so an open response is not replaced by connection
-heartbeats.
+After a length-aware stability pause, POP explains selected web text and runs local writing analysis
+for an active X draft. Up requests another explanation, Down drafts a response, and Right summarizes.
+Outside X, typing is ignored: only an explicit selection becomes context. Known mail, account,
+password-manager, payment, and photo surfaces are excluded before the content script starts and are
+rejected again by POP Core. Exact duplicate context is suppressed so an open response is not replaced
+by connection heartbeats.
+
+Standard DOM selections are supported. Chrome internal pages, image-only documents, browser PDF
+viewer text, and canvas-rendered editors may require a later accessibility or manual-capture adapter.

@@ -23,6 +23,27 @@ describe('protocol envelope', () => {
     expect(envelope.type).toBe('CONTEXT');
   });
 
+  it('accepts a generic web selection with source metadata', () => {
+    const envelope = parseProtocolEnvelope({
+      version: PROTOCOL_VERSION,
+      id: crypto.randomUUID(),
+      source: 'CHROME',
+      type: 'CONTEXT',
+      timestamp: 1,
+      payload: {
+        kind: 'ARTICLE_TEXT',
+        platformId: 'WEB',
+        text: 'LoRA updates a small trainable adapter while the base model stays frozen.',
+        applicationId: 'chrome',
+        domain: 'www.ibm.com',
+        title: 'Low-rank adaptation fine tuning',
+        observedAt: 1,
+      },
+    });
+
+    expect(envelope.type).toBe('CONTEXT');
+  });
+
   it('rejects unknown versions and oversized text', () => {
     expect(() =>
       parseProtocolEnvelope({

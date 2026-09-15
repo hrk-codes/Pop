@@ -443,7 +443,7 @@ mod task_context_tests {
     use super::{protocol::ContextKind, task_matches_context};
 
     #[test]
-    fn selected_x_text_can_be_explained_or_used_for_a_reply() {
+    fn selected_web_text_can_be_explained_or_used_for_a_reply() {
         for kind in [
             ContextKind::SocialPost,
             ContextKind::SelectedText,
@@ -521,7 +521,7 @@ async fn run_assistance(
             &request_id,
             &task,
             &tone,
-            &context.observation.text,
+            &context.observation,
             variant,
             cancellation,
             move |delta| {

@@ -8,6 +8,7 @@
     "build": "wxt build",
     "dev": "wxt",
     "postinstall": "wxt prepare",
+    "test": "vitest run",
     "typecheck": "wxt prepare && tsc --project tsconfig.json"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import {
   type Control,
   type LoopbackServerMessage as ServerMessage,
 } from '../utils/loopback';
+import { isXHost, supportedPage } from '../utils/page-policy';
 
 type ContentMessage =
   | { type: 'POP_CONTEXT'; observation: ContextObservation }
@@ -21,7 +22,7 @@ export default defineBackground(() => {
   let port: chrome.runtime.Port | null = null;
   let nativeReady = false;
   let transport: Transport = null;
-  let control: Control = { monitoringEnabled: false, xEnabled: false };
+  let control: Control = { monitoringEnabled: false, xEnabled: false, webEnabled: false };
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let loopbackSync: Promise<void> | null = null;
   let flushingLoopback = false;
@@ -40,7 +41,7 @@ export default defineBackground(() => {
 
   function broadcastControl() {
     void chrome.tabs
-      .query({ url: 'https://x.com/*' })
+      .query({ url: ['http://*/*', 'https://*/*'] })
       .then((tabs) => {
         for (const tab of tabs)
           if (tab.id)
@@ -57,7 +58,8 @@ export default defineBackground(() => {
     if (
       message.type !== 'CONTROL' ||
       typeof message.monitoringEnabled !== 'boolean' ||
-      typeof message.xEnabled !== 'boolean'
+      typeof message.xEnabled !== 'boolean' ||
+      typeof message.webEnabled !== 'boolean'
     ) {
       return false;
     }
@@ -65,6 +67,7 @@ export default defineBackground(() => {
     control = {
       monitoringEnabled: message.monitoringEnabled,
       xEnabled: message.xEnabled,
+      webEnabled: message.webEnabled,
     };
     broadcastControl();
     return true;
@@ -85,7 +88,7 @@ export default defineBackground(() => {
     } catch {
       if (transport === 'loopback') {
         transport = null;
-        control = { monitoringEnabled: false, xEnabled: false };
+        control = { monitoringEnabled: false, xEnabled: false, webEnabled: false };
         broadcastControl();
       }
     } finally {
@@ -102,7 +105,7 @@ export default defineBackground(() => {
       .catch(() => {
         if (!nativeReady) {
           transport = null;
-          control = { monitoringEnabled: false, xEnabled: false };
+          control = { monitoringEnabled: false, xEnabled: false, webEnabled: false };
           broadcastControl();
         }
       })
@@ -166,21 +169,21 @@ export default defineBackground(() => {
       respond(control);
       return;
     }
-    if (
-      message.type === 'POP_CONTEXT' &&
-      senderUrl?.startsWith('https://x.com/') &&
+    const sender = senderUrl ? supportedPage(senderUrl) : null;
+    const expectedPlatform = sender && isXHost(sender.hostname) ? 'X' : 'WEB';
+    const permitted = Boolean(
+      sender &&
       control.monitoringEnabled &&
-      control.xEnabled
-    ) {
+      (expectedPlatform === 'X' ? control.xEnabled : control.webEnabled),
+    );
+    const validObservation =
+      message.observation.platformId === expectedPlatform &&
+      message.observation.domain === sender?.hostname;
+    if (message.type === 'POP_CONTEXT' && permitted && validObservation) {
       send(envelope({ type: 'CONTEXT', payload: message.observation }));
       return;
     }
-    if (
-      message.type === 'POP_ACTION' &&
-      senderUrl?.startsWith('https://x.com/') &&
-      control.monitoringEnabled &&
-      control.xEnabled
-    ) {
+    if (message.type === 'POP_ACTION' && permitted && validObservation) {
       send(envelope({ type: 'CONTEXT', payload: message.observation }));
       send(
         envelope({

@@ -72,6 +72,12 @@ fn control_message(snapshot: &RuntimeSnapshot) -> ServerMessage {
             .get(&crate::protocol::PlatformId::X)
             .copied()
             .unwrap_or(false),
+        web_enabled: snapshot
+            .permissions
+            .platforms
+            .get(&crate::protocol::PlatformId::Web)
+            .copied()
+            .unwrap_or(false),
     }
 }
 
@@ -92,7 +98,7 @@ fn process_envelope(envelope: ProtocolEnvelope, core: &PopCore, app: &AppHandle)
     if envelope.source != AdapterSource::Chrome {
         return ServerMessage::Error {
             code: "SOURCE_DENIED".to_owned(),
-            message: "This bridge accepts the X adapter only.".to_owned(),
+            message: "This bridge accepts the POP Chrome adapter only.".to_owned(),
         };
     }
     match envelope.message {
@@ -125,12 +131,15 @@ fn process_envelope(envelope: ProtocolEnvelope, core: &PopCore, app: &AppHandle)
                 command => {
                     let snapshot = core.snapshot();
                     if !snapshot.permissions.monitoring_enabled
-                        || !snapshot.permissions.allows(crate::protocol::PlatformId::X)
+                        || !snapshot.current_context.as_ref().is_some_and(|context| {
+                            snapshot.permissions.allows(context.observation.platform_id)
+                        })
                         || snapshot.suspended
                     {
                         return ServerMessage::Error {
                             code: "ASSISTANCE_DISABLED".to_owned(),
-                            message: "POP assistance is not enabled for X.".to_owned(),
+                            message: "POP assistance is not enabled for the current context."
+                                .to_owned(),
                         };
                     }
                     let direction = match command {

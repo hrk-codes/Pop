@@ -23,11 +23,18 @@ Ambient messages close after 9 to 14 seconds. They may suggest a break or ask a 
 
 ### Expression behavior
 
-The avatar maps trusted runtime states to visible expressions: sleeping, attentive, thinking, speaking, success, blocked, playful, mischievous, excited, dramatic, impatient, silly, curious, encouraging, and privacy. Mood messages alter the mouth, brows, cheeks, leaf, and body motion rather than changing text alone.
+The avatar maps trusted runtime states to visible expressions: sleeping, attentive, thinking, speaking, success, blocked, playful, mischievous, excited, dramatic, impatient, silly, curious, encouraging, and privacy. Mood messages alter the mouth, brows, cheeks, and leaf rather than changing text alone.
 
 Cursor gaze is strictly idle behavior. It runs only while monitoring and personality are enabled, no context or task is active, POP is not suspended or privacy-paused, and the work-state machine is idle or attentive. Work immediately centers the eyes and cancels idle gestures. Explanation, writing, and reply tasks use thoughtful, focused, and friendly mouth rhythms respectively. The first silent face performance begins after about 2.5 seconds, followed by a non-repeating eye, brow, leaf, or mouth expression every 6 to 14 seconds. POP's body remains stationary; personality never shakes or moves the avatar around the screen. These performances never open a text box, inspect content, or call a model.
 
 Long selections are bounded locally before they cross the adapter bridge. When an excerpt exceeds the protocol limit, POP preserves its opening and conclusion and marks the omitted middle instead of silently discarding the ending. Long-form replies receive a larger private reasoning budget, a longer request deadline, and strict grounding instructions; the visible result is still limited to a compact, useful contribution.
+
+Generic Chrome reading is a separate deny-by-default permission from X assistance. Outside X, the
+adapter ignores typing and page contents until the user deliberately selects text. POP classifies the
+selection as ordinary text or article material, retains its page title and domain as untrusted
+provenance, and chooses a reading strategy for questions, technical documentation, arguments,
+correspondence, narratives, or general prose. Large excerpts wait longer for selection stability and
+remain only in volatile context for up to five minutes so follow-up arrows still work.
 
 Native code reduces the global cursor position to a normalized gaze direction. Raw coordinates are not logged, persisted, or sent to an AI provider.
 

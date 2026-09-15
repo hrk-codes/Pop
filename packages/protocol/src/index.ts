@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
-export const PROTOCOL_VERSION = 4 as const;
+export const PROTOCOL_VERSION = 5 as const;
 
 export const adapterSourceSchema = z.enum(['CHROME', 'VSCODE']);
 export type AdapterSource = z.infer<typeof adapterSourceSchema>;
 export const platformIdSchema = z.enum([
   'X',
+  'WEB',
   'GOOGLE',
   'YOUTUBE',
   'WHATSAPP',

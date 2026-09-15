@@ -24,7 +24,7 @@ terminal after a successful release build:
 PowerShell may then be closed. Minimize POP from its menu to suspend responses and keep the process in
 the system tray. Clicking the tray icon shows POP and resumes the previously enabled monitoring state.
 
-## 2. Install the new X adapter once
+## 2. Install the Chrome adapter once
 
 1. Open `chrome://extensions` and enable Developer mode.
 2. Remove or disable every older POP extension; they use the obsolete pairing protocol.
@@ -32,14 +32,14 @@ the system tray. Clicking the tray icon shows POP and resumes the previously ena
 4. Choose `C:\Users\hrkgh\Agent learn\PoP\apps\chrome-extension\dist\chrome-mv3` itself. Do not
    select the `content-scripts` folder inside it; Chrome must see `manifest.json` at the selected root.
 5. Verify its ID is `fpkepfajehdejjbccjaecmbmdepkaddf`.
-6. Reload any open `x.com` tab.
+6. Reload any open page where POP will be tested.
 
-Whenever the adapter is rebuilt, click **Reload** on its extension card and then reload X. POP's menu
-must report **X adapter connected** before an X selection can become context.
+Whenever the adapter is rebuilt, click **Reload** on its extension card and then reload the target
+page. POP's menu must report **Chrome adapter connected** before a selection can become context.
 
 There is no pairing code. The extension popup is a small connection diagnostic with a **Show POP**
-shortcut; daily permission and assistance controls live in POP. Chrome's one-time extension and
-X-access approval cannot be skipped by a desktop application.
+shortcut; daily permission and assistance controls live in POP. Chrome's one-time extension approval
+cannot be skipped by a desktop application.
 
 ## 3. Configure AI
 
@@ -62,7 +62,7 @@ and choose **Check Groq**. The menu reports status without showing the key.
 - Scroll over POP and confirm the character cycles through 56, 76, and 104 pixels.
 - Double-click POP and verify the compact menu opens beside it.
 - Turn Monitoring off and confirm POP sleeps.
-- Turn Monitoring and X assistance on and confirm the menu shows the intended state.
+- Turn Monitoring on. Enable X assistance for X, and enable Chrome reading for ordinary web pages.
 - Use the minus button beside the menu's close button. Confirm the avatar and response hide, then
   restore POP from the tray icon and confirm monitoring resumes.
 - Restart POP and verify its size and position return.
@@ -89,22 +89,38 @@ and choose **Check Groq**. The menu reports status without showing the key.
    the pointer is resting over it. Close and collapse remain available as immediate controls.
 5. Collapse the response with its minus button, then click the coral result dot to reopen it.
 
-Selecting text outside an X post should automatically produce an explanation instead of a reply. Its
-manual menu contains Explain and Summarize only, preventing an incompatible reply request.
+Changing the selection or X route invalidates the previous context. Password and security-like fields
+are rejected before they reach POP Core.
 
-Changing the selection or X route invalidates the previous context. Context also expires after 90
-seconds. Password and security-like fields are rejected before they reach POP Core.
+## 7. Test universal Chrome reading
 
-## 7. Expected boundaries
+1. Open a normal HTTP/HTTPS documentation or article page, such as IBM documentation or MDN.
+2. Double-click POP and enable Monitoring and **Chrome reading**. X assistance is independent.
+3. Select a sentence. POP should explain it automatically after a short stability pause.
+4. Press Up for a different explanation, Down for a concise grounded response, and Right for a
+   summary. The same actions are available under the Chrome reading submenu.
+5. Select a passage longer than 1,500 characters. POP should wait about 700 ms before accepting it,
+   show its thinking state, and return a source-grounded explanation. Large context remains available
+   in memory for five minutes so Down can still produce a follow-up response.
+6. Confirm typing on an ordinary website causes no activity. Outside X, only highlighted text is
+   observed.
+7. Open Gmail, Outlook, a Google account page, a password manager, PayPal, or Google Photos. POP must
+   not accept page context there even when Chrome reading is enabled.
 
-POP may read only approved X selections and active draft snapshots while both switches are on. It may
-run local grammar or an explicitly requested Groq task. It may display and copy a preview.
+The current adapter supports standard selectable DOM text. Chrome internal pages, the built-in PDF
+viewer, image-only documents, and canvas-rendered editors may not expose a usable selection.
+
+## 8. Expected boundaries
+
+POP may read active X draft snapshots when X assistance is enabled and deliberate web selections when
+Chrome reading is enabled. It may run local grammar or a policy-matched Groq task, then display and
+copy a preview.
 
 POP must not click, type, post, follow, like, delete, inspect unrelated tabs, read cookies, capture the
-screen, or save raw X content. VS Code, Cursor, other websites, voice, tools, memory, and actions remain
-outside this release.
+screen, or save raw page content. VS Code, Cursor, voice, tools, memory, and actions remain outside
+this release.
 
-## 8. Stop or repair
+## 9. Stop or repair
 
 Press `Ctrl+C` in the development terminal. If a previous run was interrupted:
 
@@ -113,10 +129,11 @@ Press `Ctrl+C` in the development terminal. If a previous run was interrupted:
 .\scripts\dev.ps1
 ```
 
-If POP is visible but X does not respond, double-click POP and read the status under **X assistance**:
+If POP is visible but a page does not respond, double-click POP and read the relevant X assistance or
+Chrome reading status:
 
-- **Extension bridge offline:** reload the POP extension and then reload X.
-- **Connected, waiting for X context:** select post text or type in an active X draft.
+- **Extension bridge offline:** reload the POP extension and then reload the target page.
+- **Connected, waiting for context:** select visible text or type in an active X draft.
 - **Source not foreground:** keep Chrome in front until the selection has been recognized.
 - **Draft text ready** or **Social post ready:** use a directional action; POP Core has the context.
 
