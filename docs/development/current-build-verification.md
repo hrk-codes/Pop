@@ -79,15 +79,20 @@ and choose **Check Groq**. The menu reports status without showing the key.
 
 ## 6. Test a selected post
 
-1. Select text inside an X post.
-2. After the selection remains stable briefly, POP should explain the selection automatically. No
+1. Double-click POP, open **Selection response**, and leave both **Explain** and **Reply** enabled.
+2. Select text inside an X post.
+3. After the selection remains stable briefly, POP should explain the selection automatically. No
    arrow controls should appear.
-3. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
+4. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
    a reply. The same commands work while POP's avatar or response bubble has keyboard focus. Click the
    upper or lower part of the mascot for the pointer equivalents.
-4. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
+5. In **Selection response**, turn off **Explain** so only **Reply** remains enabled. Make a different
+   selection and confirm POP drafts a reply immediately without spending a request on an explanation.
+6. Turn **Explain** on and **Reply** off, make another selection, and confirm POP explains it first. POP
+   keeps at least one option enabled and remembers the setting after restart.
+7. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
    the pointer is resting over it. Close and collapse remain available as immediate controls.
-5. Collapse the response with its minus button, then click the coral result dot to reopen it.
+8. Collapse the response with its minus button, then click the coral result dot to reopen it.
 
 Changing the selection or X route invalidates the previous context. Password and security-like fields
 are rejected before they reach POP Core.

@@ -42,6 +42,7 @@ struct ProviderHealth {
 struct CompanionPreferences {
     avatar_size: u16,
     personality_enabled: bool,
+    automatic_response_mode: String,
 }
 
 #[derive(Serialize)]
@@ -99,9 +100,14 @@ fn get_companion_preferences(core: State<'_, PopCore>) -> Result<CompanionPrefer
         .text_setting("personality_enabled")?
         .map(|value| value == "true")
         .unwrap_or(true);
+    let automatic_response_mode = store
+        .text_setting("automatic_response_mode")?
+        .filter(|value| matches!(value.as_str(), "EXPLAIN" | "REPLY" | "EXPLAIN_AND_REPLY"))
+        .unwrap_or_else(|| "EXPLAIN_AND_REPLY".to_owned());
     Ok(CompanionPreferences {
         avatar_size: size,
         personality_enabled,
+        automatic_response_mode,
     })
 }
 
@@ -122,6 +128,17 @@ fn set_personality_enabled(value: bool, core: State<'_, PopCore>) -> Result<(), 
         .lock()
         .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
         .set_bool("personality_enabled", value, now_ms())
+}
+
+#[tauri::command]
+fn set_automatic_response_mode(value: String, core: State<'_, PopCore>) -> Result<(), String> {
+    if !matches!(value.as_str(), "EXPLAIN" | "REPLY" | "EXPLAIN_AND_REPLY") {
+        return Err("INVALID_AUTOMATIC_RESPONSE_MODE".to_owned());
+    }
+    core.store()
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .set_text("automatic_response_mode", &value, now_ms())
 }
 
 #[tauri::command]
@@ -777,6 +794,7 @@ pub fn run() {
             get_companion_preferences,
             set_avatar_size,
             set_personality_enabled,
+            set_automatic_response_mode,
             get_companion_awareness,
             set_monitoring,
             set_platform_permission,

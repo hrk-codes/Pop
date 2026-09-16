@@ -1,4 +1,4 @@
-import type { AssistanceTask, ContextKind } from '../runtime/runtime-client';
+import type { AssistanceTask, AutomaticResponseMode, ContextKind } from '../runtime/runtime-client';
 
 export type CompanionTask = AssistanceTask | 'CHECK_WRITING';
 export type Direction = 'up' | 'down' | 'left' | 'right';
@@ -34,14 +34,18 @@ export function actionsFor(kind?: ContextKind): Record<Direction, ActionItem> {
   };
 }
 
-export function automaticTaskFor(kind?: ContextKind): CompanionTask | null {
+export function automaticTaskFor(
+  kind?: ContextKind,
+  responseMode: AutomaticResponseMode = 'EXPLAIN_AND_REPLY',
+): CompanionTask | null {
   if (kind === 'DRAFT_TEXT') return 'CHECK_WRITING';
   if (
     kind === 'SOCIAL_POST' ||
     kind === 'CONVERSATION' ||
     kind === 'ARTICLE_TEXT' ||
     kind === 'SELECTED_TEXT'
-  )
-    return 'EXPLAIN_TEXT';
+  ) {
+    return responseMode === 'REPLY' ? 'DRAFT_REPLY' : 'EXPLAIN_TEXT';
+  }
   return null;
 }

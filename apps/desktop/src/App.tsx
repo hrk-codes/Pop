@@ -78,11 +78,13 @@ import {
   onRuntimeUpdate,
   requestAssistance,
   resizeSpeechSurface,
+  saveAutomaticResponseMode,
   saveAvatarSize,
   savePersonalityEnabled,
   suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
+  type AutomaticResponseMode,
   type RuntimeSnapshot,
 } from './features/runtime/runtime-client';
 
@@ -188,6 +190,7 @@ function AvatarSurface() {
   const gestureClearTimer = useRef<number | undefined>(undefined);
   const runtimeRef = useRef(runtime);
   const personalityEnabledRef = useRef(personalityEnabled);
+  const automaticResponseModeRef = useRef<AutomaticResponseMode>('EXPLAIN_AND_REPLY');
   const previousMonitoring = useRef<boolean | null>(null);
   const lastMomentId = useRef<string | null>(null);
   const lastIdleGesture = useRef<IdleGesture | null>(null);
@@ -277,6 +280,7 @@ function AvatarSurface() {
     void getCompanionPreferences().then((preferences) => {
       setSize(preferences.avatarSize);
       setPersonalityEnabled(preferences.personalityEnabled);
+      automaticResponseModeRef.current = preferences.automaticResponseMode;
       setPreferencesReady(true);
     });
     void onRuntimeUpdate((snapshot) => {
@@ -298,7 +302,7 @@ function AvatarSurface() {
         variantCounts.current = {};
         void emit('pop://context-changed');
       }
-      const task = automaticTaskFor(context.observation.kind);
+      const task = automaticTaskFor(context.observation.kind, automaticResponseModeRef.current);
       const enabled =
         snapshot.permissions.monitoringEnabled &&
         snapshot.currentContext !== null &&
@@ -344,6 +348,9 @@ function AvatarSurface() {
         setAmbientMood(null);
         setIdleMood(null);
       }
+    }).then((cleanup) => cleanups.push(cleanup));
+    void appListen<AutomaticResponseMode>('pop://automatic-response-mode-updated', (value) => {
+      automaticResponseModeRef.current = value;
     }).then((cleanup) => cleanups.push(cleanup));
     void appListen('pop://companion-now', () => {
       shareCompanionMoment(nextCompanionMoment(lastMomentId.current));
@@ -896,11 +903,14 @@ function MenuSurface() {
   const [section, setSection] = useState<string | null>(null);
   const [health, setHealth] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
   const [personalityEnabled, setPersonalityEnabled] = useState(true);
+  const [automaticResponseMode, setAutomaticResponseMode] =
+    useState<AutomaticResponseMode>('EXPLAIN_AND_REPLY');
   useEffect(() => {
     void getRuntimeSnapshot().then(setRuntime);
-    void getCompanionPreferences().then((preferences) =>
-      setPersonalityEnabled(preferences.personalityEnabled),
-    );
+    void getCompanionPreferences().then((preferences) => {
+      setPersonalityEnabled(preferences.personalityEnabled);
+      setAutomaticResponseMode(preferences.automaticResponseMode);
+    });
     let cleanup: (() => void) | undefined;
     void onRuntimeUpdate(setRuntime).then((value) => (cleanup = value));
     const onKey = (event: KeyboardEvent) => {
@@ -925,7 +935,40 @@ function MenuSurface() {
     await hideCurrentSurface();
     await emit('pop://avatar-action', direction);
   }
+  async function updateAutomaticResponseOption(option: 'EXPLAIN' | 'REPLY', enabled: boolean) {
+    const explainEnabled = automaticResponseMode !== 'REPLY';
+    const replyEnabled = automaticResponseMode !== 'EXPLAIN';
+    const nextExplain = option === 'EXPLAIN' ? enabled : explainEnabled;
+    const nextReply = option === 'REPLY' ? enabled : replyEnabled;
+    if (!nextExplain && !nextReply) return;
+    const nextMode: AutomaticResponseMode = nextExplain
+      ? nextReply
+        ? 'EXPLAIN_AND_REPLY'
+        : 'EXPLAIN'
+      : 'REPLY';
+    if (nextMode === automaticResponseMode) return;
+    const previousMode = automaticResponseMode;
+    setAutomaticResponseMode(nextMode);
+    try {
+      await saveAutomaticResponseMode(nextMode);
+      if (isTauriRuntime()) await emit('pop://automatic-response-mode-updated', nextMode);
+    } catch {
+      setAutomaticResponseMode(previousMode);
+    }
+  }
+  const automaticResponseDetail =
+    automaticResponseMode === 'EXPLAIN'
+      ? 'Explain automatically'
+      : automaticResponseMode === 'REPLY'
+        ? 'Reply automatically'
+        : 'Explain first';
   const rows = [
+    {
+      id: 'automatic-response',
+      label: 'Selection response',
+      icon: <MessageCircle size={18} />,
+      detail: automaticResponseDetail,
+    },
     { id: 'ai', label: 'AI', icon: <Sparkles size={18} />, detail: 'Local + Groq' },
     {
       id: 'personality',
@@ -1146,6 +1189,38 @@ function MenuSurface() {
             </button>
             {section === row.id && (
               <div className="submenu">
+                {row.id === 'automatic-response' && (
+                  <div className="response-mode-options">
+                    <label className="submenu-toggle">
+                      <span>
+                        <BookOpen size={15} />
+                        Explain
+                      </span>
+                      <input
+                        aria-label="Automatically explain selections"
+                        checked={automaticResponseMode !== 'REPLY'}
+                        onChange={(event) =>
+                          void updateAutomaticResponseOption('EXPLAIN', event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                    <label className="submenu-toggle">
+                      <span>
+                        <MessageCircle size={15} />
+                        Reply
+                      </span>
+                      <input
+                        aria-label="Automatically draft replies"
+                        checked={automaticResponseMode !== 'EXPLAIN'}
+                        onChange={(event) =>
+                          void updateAutomaticResponseOption('REPLY', event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                    </label>
+                  </div>
+                )}
                 {row.id === 'ai' && (
                   <button onClick={() => void providerCheck()} type="button">
                     <Cloud size={15} />

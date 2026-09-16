@@ -11,6 +11,14 @@ describe('POP intent routing', () => {
     expect(automaticTaskFor('ARTICLE_TEXT')).toBe('EXPLAIN_TEXT');
   });
 
+  it('uses the selected automatic response mode without changing directional actions', () => {
+    expect(automaticTaskFor('SOCIAL_POST', 'EXPLAIN')).toBe('EXPLAIN_TEXT');
+    expect(automaticTaskFor('SOCIAL_POST', 'REPLY')).toBe('DRAFT_REPLY');
+    expect(automaticTaskFor('SOCIAL_POST', 'EXPLAIN_AND_REPLY')).toBe('EXPLAIN_TEXT');
+    expect(actionsFor('SOCIAL_POST').up.task).toBe('EXPLAIN_TEXT');
+    expect(actionsFor('SOCIAL_POST').down.task).toBe('DRAFT_REPLY');
+  });
+
   it('routes Down to a reply for any selected X content', () => {
     expect(actionsFor('SOCIAL_POST').down.task).toBe('DRAFT_REPLY');
     expect(actionsFor('CONVERSATION').down.task).toBe('DRAFT_REPLY');

@@ -468,6 +468,19 @@ button {
   accent-color: #36b88a;
   cursor: pointer;
 }
+.response-mode-options {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+}
+.response-mode-options .submenu-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+}
 .context-actions {
   flex-wrap: wrap;
 }

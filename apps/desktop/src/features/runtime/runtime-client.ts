@@ -72,9 +72,11 @@ export interface ProviderHealth {
   configured: boolean;
   reachable: boolean;
 }
+export type AutomaticResponseMode = 'EXPLAIN' | 'REPLY' | 'EXPLAIN_AND_REPLY';
 export interface CompanionPreferences {
   avatarSize: 56 | 76 | 104;
   personalityEnabled: boolean;
+  automaticResponseMode: AutomaticResponseMode;
 }
 
 export interface CompanionAwareness {
@@ -103,7 +105,12 @@ export function getRuntimeSnapshot(): Promise<RuntimeSnapshot> {
 }
 
 export function getCompanionPreferences(): Promise<CompanionPreferences> {
-  if (!isTauriRuntime()) return Promise.resolve({ avatarSize: 76, personalityEnabled: true });
+  if (!isTauriRuntime())
+    return Promise.resolve({
+      avatarSize: 76,
+      personalityEnabled: true,
+      automaticResponseMode: 'EXPLAIN_AND_REPLY',
+    });
   return invoke('get_companion_preferences');
 }
 
@@ -115,6 +122,11 @@ export function saveAvatarSize(value: number): Promise<void> {
 export function savePersonalityEnabled(value: boolean): Promise<void> {
   if (!isTauriRuntime()) return Promise.resolve();
   return invoke('set_personality_enabled', { value });
+}
+
+export function saveAutomaticResponseMode(value: AutomaticResponseMode): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke('set_automatic_response_mode', { value });
 }
 
 export function getCompanionAwareness(): Promise<CompanionAwareness> {

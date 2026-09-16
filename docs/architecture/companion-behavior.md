@@ -6,7 +6,7 @@ POP combines a serious work assistant with a small, expressive desktop presence.
 
 ### Task behavior
 
-Task behavior begins with approved context and follows the normal POP policy path. It can explain, improve, summarize, or draft a reply. Completed task responses use an adaptive 10 to 90 second reading period: a short two-line answer leaves promptly, while a dense explanation remains available longer. The deadline is absolute so a bubble cannot remain stuck open merely because it appeared beneath the pointer. The result remains available from the indicator beside POP after the bubble closes.
+Task behavior begins with approved context and follows the normal POP policy path. It can explain, improve, summarize, or draft a reply. The persistent Selection response preference controls only the first automatic task for a new deliberate selection: Explain starts with an explanation, Reply starts with a draft reply, and enabling both starts with an explanation. Directional actions and response-history navigation remain unchanged, so the user can still request or review alternatives after that first result. Completed task responses use an adaptive 10 to 90 second reading period: a short two-line answer leaves promptly, while a dense explanation remains available longer. The deadline is absolute so a bubble cannot remain stuck open merely because it appeared beneath the pointer. The result remains available from the indicator beside POP after the bubble closes.
 
 ### Ambient behavior
 
