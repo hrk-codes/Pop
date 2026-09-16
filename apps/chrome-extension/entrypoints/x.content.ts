@@ -1,6 +1,12 @@
 import type { ContextKind, ContextObservation } from '@pop/protocol';
 import { isPrivateWebHost, isXHost } from '../utils/page-policy';
-import { boundContext, classifySelection, selectionSettleDelay } from '../utils/selection';
+import {
+  boundContext,
+  classifySelection,
+  contextTriggerPolicy,
+  type ContextTrigger,
+  selectionSettleDelay,
+} from '../utils/selection';
 
 type Control = { monitoringEnabled: boolean; xEnabled: boolean; webEnabled: boolean };
 
@@ -33,25 +39,6 @@ export default defineContentScript({
       !isPrivateWebHost(location.hostname) &&
       (xPage() ? control.xEnabled : control.webEnabled);
 
-    function sensitive(element: HTMLElement): boolean {
-      const field = element instanceof HTMLInputElement ? element : null;
-      const label =
-        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('name') ?? ''}`.toLowerCase();
-      return (
-        field?.type === 'password' ||
-        /password|passcode|security code|card number|cvv|cvc/.test(label)
-      );
-    }
-    function editable(element: EventTarget | null): HTMLElement | null {
-      if (!(element instanceof HTMLElement)) return null;
-      const target = element.closest<HTMLElement>(
-        '[data-testid="tweetTextarea_0"], [role="textbox"], textarea',
-      );
-      return target && !sensitive(target) ? target : null;
-    }
-    function textOf(element: HTMLElement): string {
-      return (element instanceof HTMLTextAreaElement ? element.value : element.innerText).trim();
-    }
     function observationFor(kind: ContextKind, text: string): ContextObservation | null {
       if (!enabled() || text.length < 2) return null;
       const bounded = boundContext(text);
@@ -87,26 +74,22 @@ export default defineContentScript({
         if (lastFingerprint === fingerprint) lastFingerprint = '';
       });
     }
-    function inspect(event?: Event) {
+    function inspectSelection() {
       globalThis.clearTimeout(timer);
-      const candidate = xPage()
-        ? (editable(event?.target ?? document.activeElement) ?? editable(document.activeElement))
-        : null;
       const selectedCharacters = window.getSelection()?.toString().trim().length ?? 0;
-      const settleDelay = selectionSettleDelay(Boolean(candidate), selectedCharacters);
+      if (!selectedCharacters) return;
+      const settleDelay = selectionSettleDelay(false, selectedCharacters);
       timer = globalThis.setTimeout(() => {
         if (!enabled()) return;
-        const draft = xPage()
-          ? (editable(event?.target ?? document.activeElement) ?? editable(document.activeElement))
-          : null;
-        if (draft) {
-          const text = textOf(draft);
-          if (text) emit('DRAFT_TEXT', text);
-          return;
-        }
         const observation = selectedObservation();
         if (observation) emit(observation.kind, observation.text);
       }, settleDelay);
+    }
+
+    function handleContextTrigger(trigger: ContextTrigger) {
+      globalThis.clearTimeout(timer);
+      if (contextTriggerPolicy(trigger) === 'IGNORE') return;
+      void refreshControl().then(inspectSelection);
     }
 
     function requestAction(
@@ -124,7 +107,7 @@ export default defineContentScript({
         globalThis.clearTimeout(timer);
         lastFingerprint = '';
       } else if (!wasEnabled) {
-        inspect();
+        inspectSelection();
       }
     }
 
@@ -155,30 +138,32 @@ export default defineContentScript({
         applyControl((message as { control: Control }).control);
       }
     });
-    document.addEventListener(
-      'input',
-      (event) => {
-        void refreshControl().then(() => inspect(event));
-      },
-      true,
-    );
-    document.addEventListener('selectionchange', (event) => {
-      if (!window.getSelection()?.toString().trim() && !editable(document.activeElement)) {
+    document.addEventListener('beforeinput', () => handleContextTrigger('EDITOR_INPUT'), true);
+    document.addEventListener('input', () => handleContextTrigger('EDITOR_INPUT'), true);
+    document.addEventListener('paste', () => handleContextTrigger('PASTE'), true);
+    document.addEventListener('selectionchange', () => {
+      if (!window.getSelection()?.toString().trim()) {
+        globalThis.clearTimeout(timer);
         lastFingerprint = '';
+        return;
       }
-      void refreshControl().then(() => inspect(event));
+      handleContextTrigger('SELECTION');
     });
     document.addEventListener(
       'mouseup',
-      (event) => {
-        void refreshControl().then(() => inspect(event));
+      () => {
+        if (window.getSelection()?.toString().trim()) {
+          handleContextTrigger('SELECTION');
+        }
       },
       true,
     );
     document.addEventListener(
       'keyup',
-      (event) => {
-        void refreshControl().then(() => inspect(event));
+      () => {
+        if (window.getSelection()?.toString().trim()) {
+          handleContextTrigger('SELECTION');
+        }
       },
       true,
     );

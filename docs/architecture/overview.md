@@ -3,7 +3,7 @@
 POP's current executable is a Chrome-reading desktop companion with one authority path.
 
 ```text
-Web selection or approved X draft
+Approved Chrome or X selection
   -> WXT content script
   -> MV3 service worker
   -> Chrome Native Messaging
@@ -23,8 +23,8 @@ Web selection or approved X draft
 - **Speech surface:** streams, copies, navigates, collapses, and closes temporary results.
 - **Menu surface:** changes monitoring, X, web reading, AI, personality, privacy, and window preferences.
 - **POP Core:** makes every security decision and owns accepted temporary context.
-- **Chrome adapter:** observes deliberate bounded selections on approved web pages and paused X drafts
-  only while Core says the relevant switches are enabled.
+- **Chrome adapter:** observes deliberate bounded selections on approved web pages only while Core
+  says the relevant switches are enabled; editor input and paste are ignored.
 - **Native host:** authenticates Chrome to Core without exposing a localhost web server or user code.
 - **Provider layer:** turns explicit normalized tasks into local or remote previews.
 

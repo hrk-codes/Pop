@@ -67,15 +67,15 @@ and choose **Check Groq**. The menu reports status without showing the key.
   restore POP from the tray icon and confirm monitoring resumes.
 - Restart POP and verify its size and position return.
 
-## 5. Test an X draft
+## 5. Test X editor privacy
 
-1. Open X and begin an unsent post or reply containing a grammar error.
-2. Pause briefly after typing.
-3. POP should become attentive and automatically show a local writing correction. No arrow controls
-   should appear.
-4. Click the upper part of the mascot, or press Up while POP has keyboard focus, to run Grammar again.
-5. Click the lower part, or press Down while focused, for a Groq rewrite. Right requests Shorten.
-6. Copy the preview and confirm POP does not alter or submit the X draft.
+1. Open X and begin an unsent post or reply.
+2. Type several words and pause. POP must remain silent.
+3. Paste a generated POP response or any other passage into the editor. POP must remain silent and
+   must not echo the editor contents in its response bubble.
+4. Add more text after the paste and pause again. POP must still remain silent.
+5. Deliberately select a specific passage. POP may now explain only that selected passage.
+6. Confirm POP never alters or submits the X draft.
 
 ## 6. Test a selected post
 
@@ -102,8 +102,8 @@ are rejected before they reach POP Core.
 5. Select a passage longer than 1,500 characters. POP should wait about 700 ms before accepting it,
    show its thinking state, and return a source-grounded explanation. Large context remains available
    in memory for five minutes so Down can still produce a follow-up response.
-6. Confirm typing on an ordinary website causes no activity. Outside X, only highlighted text is
-   observed.
+6. Confirm typing or pasting on any website, including X, causes no activity. Only highlighted text
+   is observed.
 7. Open Gmail, Outlook, a Google account page, a password manager, PayPal, or Google Photos. POP must
    not accept page context there even when Chrome reading is enabled.
 
@@ -112,9 +112,9 @@ viewer, image-only documents, and canvas-rendered editors may not expose a usabl
 
 ## 8. Expected boundaries
 
-POP may read active X draft snapshots when X assistance is enabled and deliberate web selections when
-Chrome reading is enabled. It may run local grammar or a policy-matched Groq task, then display and
-copy a preview.
+POP may read deliberate selections when the relevant X assistance or Chrome reading permission is
+enabled. It may run a policy-matched task, then display and copy a preview. It does not observe editor
+input or pasted content.
 
 POP must not click, type, post, follow, like, delete, inspect unrelated tabs, read cookies, capture the
 screen, or save raw page content. VS Code, Cursor, voice, tools, memory, and actions remain outside
@@ -133,9 +133,10 @@ If POP is visible but a page does not respond, double-click POP and read the rel
 Chrome reading status:
 
 - **Extension bridge offline:** reload the POP extension and then reload the target page.
-- **Connected, waiting for context:** select visible text or type in an active X draft.
+- **Connected, waiting for context:** select visible text on an approved page.
 - **Source not foreground:** keep Chrome in front until the selection has been recognized.
-- **Draft text ready** or **Social post ready:** use a directional action; POP Core has the context.
+- **Social post ready** or another selected-text status: use a directional action; POP Core has the
+  context.
 
 To remove the local browser bridge completely:
 

@@ -17,6 +17,7 @@ state and can show POP; there is no pairing code.
 The fallback accepts only requests carrying POP's installed bridge secret and Chrome's protected
 extension-fetch metadata. Ordinary webpage origins, missing metadata, and invalid tokens are rejected.
 
-The content script runs only on X, refreshes the Core-provided monitoring state, waits for a stable
-draft or selection, rejects sensitive fields, and sends a bounded semantic snapshot. It never submits
-forms, automates X, reads browser history or cookies, or records individual key and pointer events.
+The content script runs on approved Chrome pages, refreshes the Core-provided monitoring state, waits
+for a deliberate selection to stabilize, and sends a bounded semantic snapshot. Editor input and
+pasted content are ignored. It never submits forms, automates X, reads browser history or cookies, or
+records individual key and pointer events.

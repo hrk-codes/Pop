@@ -28,8 +28,8 @@ preferences. React never grants permissions or decides whether captured context 
 
 WXT supplies typed MV3 entry points, manifest generation, production builds, and a cleaner development
 loop than the previous custom esbuild script. The current adapter has host access only to `x.com`.
-It reads stable selection or draft snapshots after a short debounce, never individual key events,
-passwords, payments, cookies, browsing history, or unrelated tabs.
+It reads stable deliberate selections after a short debounce. Editor input and pasted content are
+ignored, along with passwords, payments, cookies, browsing history, and unrelated tabs.
 
 ## Chrome Native Messaging and Windows Named Pipes
 

@@ -475,7 +475,7 @@ function AvatarSurface() {
       void emit(
         'pop://assistance-failed',
         snapshot.connectedAdapters.includes('CHROME')
-          ? 'Select text on an approved Chrome page, or type in an X draft, then try again.'
+          ? 'Select text on an approved Chrome page, then try again.'
           : 'The Chrome adapter is offline. Reload the POP extension and this tab.',
       );
       return;
@@ -1074,7 +1074,7 @@ function MenuSurface() {
                   </button>
                 </>
               ) : (
-                <span>Select a post or pause in an X draft to reveal actions.</span>
+                <span>Select text on X or another approved Chrome page to reveal actions.</span>
               )}
             </div>
           )}

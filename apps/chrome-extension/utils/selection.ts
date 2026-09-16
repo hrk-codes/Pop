@@ -30,3 +30,9 @@ export function selectionSettleDelay(editable: boolean, selectedCharacters: numb
   if (selectedCharacters >= 600) return 500;
   return 300;
 }
+
+export type ContextTrigger = 'SELECTION' | 'EDITOR_INPUT' | 'PASTE';
+
+export function contextTriggerPolicy(trigger: ContextTrigger): 'OBSERVE_SELECTION' | 'IGNORE' {
+  return trigger === 'SELECTION' ? 'OBSERVE_SELECTION' : 'IGNORE';
+}

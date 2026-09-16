@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { boundContext, classifySelection, selectionSettleDelay } from './selection';
+import {
+  boundContext,
+  classifySelection,
+  contextTriggerPolicy,
+  selectionSettleDelay,
+} from './selection';
 
 describe('Chrome selection policy', () => {
   it('preserves the beginning and conclusion of oversized selections', () => {
@@ -25,5 +30,11 @@ describe('Chrome selection policy', () => {
     expect(selectionSettleDelay(false, 700)).toBe(500);
     expect(selectionSettleDelay(false, 2_000)).toBe(700);
     expect(selectionSettleDelay(true, 40)).toBe(650);
+  });
+
+  it('observes only deliberate selections, never editor input or paste', () => {
+    expect(contextTriggerPolicy('SELECTION')).toBe('OBSERVE_SELECTION');
+    expect(contextTriggerPolicy('EDITOR_INPUT')).toBe('IGNORE');
+    expect(contextTriggerPolicy('PASTE')).toBe('IGNORE');
   });
 });
