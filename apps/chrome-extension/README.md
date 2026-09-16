@@ -30,5 +30,10 @@ page: only an explicit selection becomes context. Known mail, account, password-
 photo surfaces are excluded before the content script starts and are rejected again by POP Core.
 Exact duplicate context is suppressed so an open response is not replaced by connection heartbeats.
 
+On an X status page, selecting multiple visible thread turns through another person's latest reply
+creates a bounded conversation transcript. POP explains the whole exchange, while Down replies to the
+final other-person turn using earlier selected turns for continuity. Raw conversation context remains
+in memory for 15 minutes and is never written to durable storage.
+
 Standard DOM selections are supported. Chrome internal pages, image-only documents, browser PDF
 viewer text, and canvas-rendered editors may require a later accessibility or manual-capture adapter.

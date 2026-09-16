@@ -1052,7 +1052,8 @@ function MenuSurface() {
                     Shorten
                   </button>
                 </>
-              ) : runtime.currentContext?.observation.kind === 'SOCIAL_POST' ? (
+              ) : runtime.currentContext?.observation.kind === 'SOCIAL_POST' ||
+                runtime.currentContext?.observation.kind === 'CONVERSATION' ? (
                 <>
                   <button onClick={() => void triggerAvatarAction('up')} type="button">
                     Explain

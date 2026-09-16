@@ -44,6 +44,32 @@ describe('protocol envelope', () => {
     expect(envelope.type).toBe('CONTEXT');
   });
 
+  it('accepts a bounded X conversation with a stable thread URI', () => {
+    const envelope = parseProtocolEnvelope({
+      version: PROTOCOL_VERSION,
+      id: crypto.randomUUID(),
+      source: 'CHROME',
+      type: 'CONTEXT',
+      timestamp: 1,
+      payload: {
+        kind: 'CONVERSATION',
+        platformId: 'X',
+        text: '[POP_THREAD_CONTEXT_V1]\n\nTURN 1 | ROOT\nCONTENT:\nA post\n\nTURN 2 | OTHER\nCONTENT:\nA reply',
+        applicationId: 'chrome',
+        domain: 'x.com',
+        title: 'Thread on X',
+        documentUri: 'https://x.com/i/status/123',
+        observedAt: 1,
+      },
+    });
+
+    expect(envelope.type).toBe('CONTEXT');
+    if (envelope.type === 'CONTEXT') {
+      expect(envelope.payload.kind).toBe('CONVERSATION');
+      expect(envelope.payload.documentUri).toBe('https://x.com/i/status/123');
+    }
+  });
+
   it('rejects unknown versions and oversized text', () => {
     expect(() =>
       parseProtocolEnvelope({

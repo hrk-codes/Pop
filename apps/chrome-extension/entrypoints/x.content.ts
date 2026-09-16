@@ -1,4 +1,5 @@
 import type { ContextKind, ContextObservation } from '@pop/protocol';
+import { buildConversationTranscript, type ConversationTurn } from '../utils/conversation';
 import { isPrivateWebHost, isXHost } from '../utils/page-policy';
 import {
   boundContext,
@@ -39,6 +40,79 @@ export default defineContentScript({
       !isPrivateWebHost(location.hostname) &&
       (xPage() ? control.xEnabled : control.webEnabled);
 
+    function xThreadUri(): string | undefined {
+      const statusId = location.pathname.match(/\/status\/(\d+)/)?.[1];
+      return statusId ? `https://x.com/i/status/${statusId}` : undefined;
+    }
+
+    function ownXHandle(): string | undefined {
+      const profile = document.querySelector<HTMLAnchorElement>(
+        'a[data-testid="AppTabBar_Profile_Link"]',
+      );
+      const segment = profile?.getAttribute('href')?.split('/').filter(Boolean)[0];
+      return segment ? `@${decodeURIComponent(segment)}`.toLowerCase() : undefined;
+    }
+
+    function selectedTextWithin(range: Range, element: Element): string {
+      try {
+        if (!range.intersectsNode(element)) return '';
+        const elementRange = document.createRange();
+        elementRange.selectNodeContents(element);
+        const intersection = document.createRange();
+        const start =
+          range.compareBoundaryPoints(Range.START_TO_START, elementRange) > 0
+            ? range
+            : elementRange;
+        const end =
+          range.compareBoundaryPoints(Range.END_TO_END, elementRange) < 0 ? range : elementRange;
+        intersection.setStart(start.startContainer, start.startOffset);
+        intersection.setEnd(end.endContainer, end.endOffset);
+        return intersection.toString().trim();
+      } catch {
+        return '';
+      }
+    }
+
+    function xConversation(selection: Selection): string | null {
+      if (selection.rangeCount === 0 || !xThreadUri()) return null;
+      const range = selection.getRangeAt(0);
+      const selfHandle = ownXHandle();
+      const turns: ConversationTurn[] = [];
+      const seen = new Set<string>();
+
+      for (const article of document.querySelectorAll<HTMLElement>(
+        'article[data-testid="tweet"]',
+      )) {
+        const tweetText = article.querySelector<HTMLElement>('[data-testid="tweetText"]');
+        if (!tweetText) continue;
+        const text = selectedTextWithin(range, tweetText);
+        if (text.length < 2) continue;
+
+        const userName = article.querySelector<HTMLElement>('[data-testid="User-Name"]');
+        const labels = [...(userName?.querySelectorAll<HTMLElement>('span') ?? [])]
+          .map((span) => span.innerText.trim())
+          .filter(Boolean);
+        const authorHandle = labels.find((label) => label.startsWith('@'));
+        const authorName = labels.find(
+          (label) => !label.startsWith('@') && label !== '·' && !/^\d+[smhdwy]$/.test(label),
+        );
+        const statusLink = article
+          .querySelector<HTMLTimeElement>('a[href*="/status/"] time')
+          ?.closest<HTMLAnchorElement>('a');
+        const identity = statusLink?.href ?? `${authorHandle ?? ''}:${text}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        turns.push({
+          authorName,
+          authorHandle,
+          text,
+          isSelf: Boolean(selfHandle && authorHandle && selfHandle === authorHandle.toLowerCase()),
+        });
+      }
+
+      return buildConversationTranscript(turns)?.text ?? null;
+    }
+
     function observationFor(kind: ContextKind, text: string): ContextObservation | null {
       if (!enabled() || text.length < 2) return null;
       const bounded = boundContext(text);
@@ -49,6 +123,7 @@ export default defineContentScript({
         applicationId: 'chrome',
         domain: location.hostname,
         title: document.title.slice(0, 300),
+        documentUri: xPage() ? xThreadUri() : undefined,
         observedAt: Date.now(),
       };
     }
@@ -56,6 +131,8 @@ export default defineContentScript({
       const selection = window.getSelection();
       const text = selection?.toString().trim() ?? '';
       if (!text || !selection?.anchorNode) return null;
+      const conversation = xPage() ? xConversation(selection) : null;
+      if (conversation) return observationFor('CONVERSATION', conversation);
       const node =
         selection.anchorNode instanceof Element
           ? selection.anchorNode

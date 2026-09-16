@@ -110,7 +110,22 @@ are rejected before they reach POP Core.
 The current adapter supports standard selectable DOM text. Chrome internal pages, the built-in PDF
 viewer, image-only documents, and canvas-rendered editors may not expose a usable selection.
 
-## 8. Expected boundaries
+## 8. Test an X conversation
+
+1. Open a status page containing a root post, another person's reply, your response, and that
+   person's newest response.
+2. Select the visible thread from the root through the newest other-person response. The final
+   selected turn must not be your own.
+3. POP should identify `conversation ready` and explain the discussion as a whole.
+4. Press Down. The draft must answer the final other-person response while respecting what was
+   already said; it must not summarize the root or repeat your previous response.
+5. Press Up for a fresh explanation and Right for a thread summary.
+6. Paste the generated reply into X. POP must remain silent because editor input and paste are
+   ignored.
+7. For a long thread, confirm the root and newest turn remain represented while an older middle may
+   be marked as omitted locally.
+
+## 9. Expected boundaries
 
 POP may read deliberate selections when the relevant X assistance or Chrome reading permission is
 enabled. It may run a policy-matched task, then display and copy a preview. It does not observe editor
@@ -120,7 +135,7 @@ POP must not click, type, post, follow, like, delete, inspect unrelated tabs, re
 screen, or save raw page content. VS Code, Cursor, voice, tools, memory, and actions remain outside
 this release.
 
-## 9. Stop or repair
+## 10. Stop or repair
 
 Press `Ctrl+C` in the development terminal. If a previous run was interrupted:
 

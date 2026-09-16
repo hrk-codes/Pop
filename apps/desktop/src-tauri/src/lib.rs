@@ -446,6 +446,7 @@ mod task_context_tests {
     fn selected_web_text_can_be_explained_or_used_for_a_reply() {
         for kind in [
             ContextKind::SocialPost,
+            ContextKind::Conversation,
             ContextKind::SelectedText,
             ContextKind::ArticleText,
         ] {

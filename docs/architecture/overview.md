@@ -24,7 +24,8 @@ Approved Chrome or X selection
 - **Menu surface:** changes monitoring, X, web reading, AI, personality, privacy, and window preferences.
 - **POP Core:** makes every security decision and owns accepted temporary context.
 - **Chrome adapter:** observes deliberate bounded selections on approved web pages only while Core
-  says the relevant switches are enabled; editor input and paste are ignored.
+  says the relevant switches are enabled; on X it can structure a selected multi-turn thread as a
+  conversation. Editor input and paste are ignored.
 - **Native host:** authenticates Chrome to Core without exposing a localhost web server or user code.
 - **Provider layer:** turns explicit normalized tasks into local or remote previews.
 

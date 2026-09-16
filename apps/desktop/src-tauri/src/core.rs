@@ -17,6 +17,9 @@ use crate::{
 const DEFAULT_CONTEXT_TTL_MS: u64 = 90_000;
 
 fn context_ttl_ms(observation: &ContextObservation) -> u64 {
+    if observation.kind == ContextKind::Conversation {
+        return 900_000;
+    }
     if !matches!(
         observation.kind,
         ContextKind::SelectedText | ContextKind::ArticleText | ContextKind::SocialPost
@@ -431,5 +434,22 @@ mod web_domain_tests {
             observed_at: 1,
         };
         assert_eq!(context_ttl_ms(&observation), 300_000);
+    }
+
+    #[test]
+    fn keeps_an_active_conversation_available_without_persisting_it() {
+        let observation = ContextObservation {
+            kind: ContextKind::Conversation,
+            platform_id: PlatformId::X,
+            text: "TURN 1 | ROOT\nCONTENT:\nA topic\n\nTURN 2 | OTHER\nCONTENT:\nA reply"
+                .to_owned(),
+            application_id: "chrome".to_owned(),
+            domain: Some("x.com".to_owned()),
+            title: Some("Thread".to_owned()),
+            language_id: None,
+            document_uri: Some("https://x.com/i/status/1".to_owned()),
+            observed_at: 1,
+        };
+        assert_eq!(context_ttl_ms(&observation), 900_000);
     }
 }

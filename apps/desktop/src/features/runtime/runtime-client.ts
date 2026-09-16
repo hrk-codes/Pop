@@ -3,7 +3,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type AdapterSource = 'CHROME';
 export type PlatformId = 'X' | 'WEB';
-export type ContextKind = 'DRAFT_TEXT' | 'SOCIAL_POST' | 'ARTICLE_TEXT' | 'SELECTED_TEXT';
+export type ContextKind =
+  'DRAFT_TEXT' | 'SOCIAL_POST' | 'CONVERSATION' | 'ARTICLE_TEXT' | 'SELECTED_TEXT';
 export type AssistanceTask =
   'EXPLAIN_TEXT' | 'IMPROVE_WRITING' | 'DRAFT_REPLY' | 'SUMMARIZE' | 'SHORTEN';
 
@@ -14,6 +15,7 @@ export interface ContextObservation {
   applicationId: string;
   domain?: string;
   title?: string;
+  documentUri?: string;
   observedAt: number;
 }
 
