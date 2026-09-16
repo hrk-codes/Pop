@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { speechDimensions } from './speech';
+import { responseDragPreview, speechDimensions } from './speech';
 
 describe('speechDimensions', () => {
   it('keeps short thoughts compact', () => {
@@ -22,5 +22,21 @@ describe('speechDimensions', () => {
 
   it('uses the rendered text height instead of a character estimate', () => {
     expect(speechDimensions('A wrapping sentence.', 72).height).toBe(156);
+  });
+});
+
+describe('responseDragPreview', () => {
+  it('keeps a short response readable beside the pointer', () => {
+    expect(responseDragPreview('  A useful reply.\nWith one more thought.  ')).toBe(
+      'A useful reply. With one more thought.',
+    );
+  });
+
+  it('bounds only the drag image while preserving the real response payload', () => {
+    const response = 'meaningful reply '.repeat(20);
+    const preview = responseDragPreview(response);
+
+    expect(preview.length).toBeLessThanOrEqual(120);
+    expect(preview.endsWith('...')).toBe(true);
   });
 });

@@ -26,6 +26,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
 } from 'react';
 
 import { PopAvatar, type WorkExpressionStyle } from './features/companion/PopAvatar';
@@ -54,6 +55,7 @@ import {
 import {
   SPEECH_CONTENT_INSET,
   preferredSpeechWidth,
+  responseDragPreview,
   speechDimensions,
 } from './features/companion/speech';
 import {
@@ -638,6 +640,7 @@ function SpeechSurface() {
   const [anchor, setAnchor] = useState<SpeechAnchor>({ side: 'right', tailY: 70 });
   const [measuredTextHeight, setMeasuredTextHeight] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [draggingResponse, setDraggingResponse] = useState(false);
   const [companionMessage, setCompanionMessage] = useState<
     (CompanionMoment & { startedAt: number }) | null
   >(null);
@@ -782,6 +785,37 @@ function SpeechSurface() {
     copyTimer.current = window.setTimeout(() => setCopied(false), 1_400);
   }
 
+  function startResponseDrag(event: ReactDragEvent<HTMLDivElement>) {
+    if (!active || error || isCompanion || streamMeta) {
+      event.preventDefault();
+      return;
+    }
+
+    const response = active.trim();
+    if (!response) {
+      event.preventDefault();
+      return;
+    }
+
+    window.clearTimeout(dismissTimer.current);
+    setDraggingResponse(true);
+    event.dataTransfer.clearData();
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('text/plain', response);
+
+    const dragImage = document.createElement('div');
+    dragImage.className = 'speech-drag-preview';
+    dragImage.textContent = responseDragPreview(response);
+    document.body.appendChild(dragImage);
+    event.dataTransfer.setDragImage(dragImage, 20, 18);
+    window.setTimeout(() => dragImage.remove(), 0);
+  }
+
+  function finishResponseDrag() {
+    setDraggingResponse(false);
+    restartDismissTimer();
+  }
+
   const responseKey =
     companionMessage?.startedAt ??
     streamMeta?.requestId ??
@@ -794,6 +828,7 @@ function SpeechSurface() {
     : activeTask === 'DRAFT_REPLY'
       ? 'reply'
       : 'explanation';
+  const responseIsDraggable = Boolean(active && !error && !isCompanion && !streamMeta);
 
   return (
     <main
@@ -820,7 +855,13 @@ function SpeechSurface() {
         aria-live="polite"
         key={responseKey}
       >
-        <div className="speech-copy">
+        <div
+          className={`speech-copy${responseIsDraggable ? ' speech-copy--draggable' : ''}${draggingResponse ? ' speech-copy--dragging' : ''}`}
+          draggable={responseIsDraggable}
+          onDragEnd={finishResponseDrag}
+          onDragStart={startResponseDrag}
+          title={responseIsDraggable ? 'Drag response into a text field' : undefined}
+        >
           {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
         </div>
         {isCompanion ? (

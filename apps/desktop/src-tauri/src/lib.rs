@@ -683,17 +683,21 @@ pub fn run() {
                 ("speech", "POP response", 360.0, 220.0),
                 ("menu", "POP menu", 284.0, 430.0),
             ] {
-                WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-                    .title(title)
-                    .inner_size(width, height)
-                    .always_on_top(true)
-                    .decorations(false)
-                    .resizable(false)
-                    .shadow(false)
-                    .skip_taskbar(true)
-                    .transparent(true)
-                    .visible(false)
-                    .build()?;
+                let mut builder =
+                    WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+                        .title(title)
+                        .inner_size(width, height)
+                        .always_on_top(true)
+                        .decorations(false)
+                        .resizable(false)
+                        .shadow(false)
+                        .skip_taskbar(true)
+                        .transparent(true)
+                        .visible(false);
+                if label == "speech" {
+                    builder = builder.disable_drag_drop_handler();
+                }
+                builder.build()?;
             }
 
             let server_core = core.clone();

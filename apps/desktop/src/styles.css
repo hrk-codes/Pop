@@ -190,6 +190,13 @@ button {
   padding: 17px 17px 11px;
   overflow: visible;
 }
+.speech-copy--draggable {
+  cursor: grab;
+  user-select: none;
+}
+.speech-copy--dragging {
+  cursor: grabbing;
+}
 .speech-copy p {
   margin: 0;
   color: #f5f7f4;
@@ -198,6 +205,29 @@ button {
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+.speech-drag-preview {
+  position: fixed;
+  z-index: 10000;
+  top: 0;
+  left: 0;
+  display: -webkit-box;
+  width: max-content;
+  max-width: 320px;
+  max-height: 74px;
+  padding: 9px 12px;
+  overflow: hidden;
+  border: 1px solid rgb(255 107 97 / 72%);
+  border-radius: 7px;
+  background: rgb(20 23 22 / 96%);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 34%);
+  color: #f7f8f5;
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0.96;
+  pointer-events: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 .speech-copy .speech-error {
   color: #ffc8c2;
