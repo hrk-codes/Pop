@@ -150,6 +150,23 @@ button {
 .speech-bubble--reply::before {
   background: #ff6b61;
 }
+.speech-bubble--generating::after {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  left: 16px;
+  width: 82px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(90deg, transparent, #72d7b0, transparent);
+  content: '';
+  pointer-events: none;
+  transform: translateX(-48px);
+  animation: speech-thinking-sweep 1.1s ease-in-out infinite;
+}
+.speech-bubble--reply.speech-bubble--generating::after {
+  background: linear-gradient(90deg, transparent, #ff6b61, transparent);
+}
 .speech-bubble--companion {
   border-color: rgb(114 215 176 / 25%);
   background: rgb(19 24 22 / 98%);
@@ -185,6 +202,7 @@ button {
   border-right: 1px solid rgb(255 255 255 / 14%);
 }
 .speech-copy {
+  position: relative;
   flex: 1;
   min-height: 0;
   padding: 17px 17px 11px;
@@ -205,6 +223,15 @@ button {
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+.speech-response--outgoing {
+  position: absolute;
+  inset: 17px 17px 11px;
+  pointer-events: none;
+  animation: speech-response-out 240ms cubic-bezier(0.4, 0, 0.6, 1) both;
+}
+.speech-response--incoming {
+  animation: speech-response-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .speech-drag-preview {
   position: fixed;
@@ -250,6 +277,37 @@ button {
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
+  }
+}
+@keyframes speech-response-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+@keyframes speech-response-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes speech-thinking-sweep {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translateX(-48px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(230px);
   }
 }
 .speech-actions {

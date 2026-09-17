@@ -55,6 +55,7 @@ import {
 import {
   SPEECH_CONTENT_INSET,
   preferredSpeechWidth,
+  replacementLayoutText,
   responseDragPreview,
   speechDimensions,
 } from './features/companion/speech';
@@ -641,6 +642,7 @@ function SpeechSurface() {
   const [measuredTextHeight, setMeasuredTextHeight] = useState(0);
   const [copied, setCopied] = useState(false);
   const [draggingResponse, setDraggingResponse] = useState(false);
+  const [contextSequence, setContextSequence] = useState(0);
   const [companionMessage, setCompanionMessage] = useState<
     (CompanionMoment & { startedAt: number }) | null
   >(null);
@@ -648,10 +650,14 @@ function SpeechSurface() {
   const measureRef = useRef<HTMLParagraphElement>(null);
   const copyTimer = useRef<number | undefined>(undefined);
   const dismissTimer = useRef<number | undefined>(undefined);
-  const active = stream || companionMessage?.text || history[index]?.output || previewText;
+  const previousResponse = history[index]?.output ?? '';
+  const active = stream || companionMessage?.text || previousResponse || previewText;
   const visibleText = error || active || 'Thinking...';
-  const preferredWidth = preferredSpeechWidth(visibleText);
-  const dimensions = speechDimensions(visibleText, measuredTextHeight);
+  const layoutText = streamMeta
+    ? replacementLayoutText(previousResponse, visibleText)
+    : visibleText;
+  const preferredWidth = preferredSpeechWidth(layoutText);
+  const dimensions = speechDimensions(layoutText, measuredTextHeight);
 
   useEffect(() => {
     historyRef.current = history;
@@ -704,6 +710,7 @@ function SpeechSurface() {
       setHistory([]);
       historyRef.current = [];
       setIndex(0);
+      setContextSequence((value) => value + 1);
       setStream('');
       setError(null);
       setCompanionMessage(null);
@@ -740,7 +747,7 @@ function SpeechSurface() {
   useLayoutEffect(() => {
     const measured = Math.ceil(measureRef.current?.getBoundingClientRect().height ?? 0);
     if (measured > 0 && measured !== measuredTextHeight) setMeasuredTextHeight(measured);
-  }, [measuredTextHeight, visibleText, preferredWidth]);
+  }, [layoutText, measuredTextHeight, preferredWidth]);
 
   useEffect(() => {
     void resizeSpeechSurface(dimensions.width, dimensions.height);
@@ -816,12 +823,6 @@ function SpeechSurface() {
     restartDismissTimer();
   }
 
-  const responseKey =
-    companionMessage?.startedAt ??
-    streamMeta?.requestId ??
-    history[index]?.requestId ??
-    error ??
-    'thinking';
   const activeTask = streamMeta?.task ?? history[index]?.task ?? '';
   const bubbleKind = isCompanion
     ? 'companion'
@@ -829,6 +830,9 @@ function SpeechSurface() {
       ? 'reply'
       : 'explanation';
   const responseIsDraggable = Boolean(active && !error && !isCompanion && !streamMeta);
+  const isReplacingResponse = Boolean(streamMeta && stream && previousResponse);
+  const bubbleKey = companionMessage?.startedAt ?? error ?? `task-${contextSequence}`;
+  const responseTextKey = streamMeta?.requestId ?? history[index]?.requestId ?? 'thinking';
 
   return (
     <main
@@ -847,13 +851,13 @@ function SpeechSurface() {
         ref={measureRef}
         style={{ width: preferredWidth - SPEECH_CONTENT_INSET }}
       >
-        {visibleText}
+        {layoutText}
       </p>
       <div className="speech-tail" />
       <article
-        className={`speech-bubble speech-bubble--${bubbleKind}`}
+        className={`speech-bubble speech-bubble--${bubbleKind}${streamMeta ? ' speech-bubble--generating' : ''}`}
         aria-live="polite"
-        key={responseKey}
+        key={bubbleKey}
       >
         <div
           className={`speech-copy${responseIsDraggable ? ' speech-copy--draggable' : ''}${draggingResponse ? ' speech-copy--dragging' : ''}`}
@@ -862,7 +866,21 @@ function SpeechSurface() {
           onDragStart={startResponseDrag}
           title={responseIsDraggable ? 'Drag response into a text field' : undefined}
         >
-          {error ? <p className="speech-error">{error}</p> : <p>{active || 'Thinking...'}</p>}
+          {isReplacingResponse ? (
+            <p aria-hidden="true" className="speech-response speech-response--outgoing">
+              {previousResponse}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="speech-error">{error}</p>
+          ) : (
+            <p
+              className={`speech-response${stream ? ' speech-response--incoming' : ''}`}
+              key={responseTextKey}
+            >
+              {active || 'Thinking...'}
+            </p>
+          )}
         </div>
         {isCompanion ? (
           <footer className="speech-actions speech-actions--companion">

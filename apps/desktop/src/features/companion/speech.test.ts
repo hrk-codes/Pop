@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { responseDragPreview, speechDimensions } from './speech';
+import { replacementLayoutText, responseDragPreview, speechDimensions } from './speech';
 
 describe('speechDimensions', () => {
   it('keeps short thoughts compact', () => {
@@ -38,5 +38,19 @@ describe('responseDragPreview', () => {
 
     expect(preview.length).toBeLessThanOrEqual(120);
     expect(preview.endsWith('...')).toBe(true);
+  });
+});
+
+describe('replacementLayoutText', () => {
+  it('keeps the previous response dimensions while a shorter replacement streams', () => {
+    expect(replacementLayoutText('The complete previous response.', 'New')).toBe(
+      'The complete previous response.',
+    );
+  });
+
+  it('allows a genuinely longer replacement to expand the bubble', () => {
+    expect(replacementLayoutText('Short answer.', 'A new response that needs more room.')).toBe(
+      'A new response that needs more room.',
+    );
   });
 });

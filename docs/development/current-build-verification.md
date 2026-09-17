@@ -86,16 +86,19 @@ and choose **Check Groq**. The menu reports status without showing the key.
 4. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
    a reply. The same commands work while POP's avatar or response bubble has keyboard focus. Click the
    upper or lower part of the mascot for the pointer equivalents.
-5. Hold a completed response in POP's bubble and drag it into an X reply field. Only a compact sentence
+5. Request at least three variants. The current response should stay still while POP is thinking; when
+   the next stream begins, only the response text should move left and be replaced from the right. The
+   old response must not blink as a new bubble, and the window must not collapse around an early chunk.
+6. Hold a completed response in POP's bubble and drag it into an X reply field. Only a compact sentence
    preview should follow the pointer. Releasing over the text field should insert the complete response
    at the drop caret without removing the existing Copy button.
-6. In **Selection response**, turn off **Explain** so only **Reply** remains enabled. Make a different
+7. In **Selection response**, turn off **Explain** so only **Reply** remains enabled. Make a different
    selection and confirm POP drafts a reply immediately without spending a request on an explanation.
-7. Turn **Explain** on and **Reply** off, make another selection, and confirm POP explains it first. POP
+8. Turn **Explain** on and **Reply** off, make another selection, and confirm POP explains it first. POP
    keeps at least one option enabled and remembers the setting after restart.
-8. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
+9. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
    the pointer is resting over it. Close and collapse remain available as immediate controls.
-9. Collapse the response with its minus button, then click the coral result dot to reopen it.
+10. Collapse the response with its minus button, then click the coral result dot to reopen it.
 
 Changing the selection or X route invalidates the previous context. Password and security-like fields
 are rejected before they reach POP Core.

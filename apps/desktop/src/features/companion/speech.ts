@@ -21,6 +21,11 @@ export function responseDragPreview(text: string): string {
   return `${compact.slice(0, DRAG_PREVIEW_LIMIT - 3).trimEnd()}...`;
 }
 
+export function replacementLayoutText(previous: string, incoming: string): string {
+  if (!previous) return incoming;
+  return [...incoming].length > [...previous].length ? incoming : previous;
+}
+
 export function speechDimensions(text: string, measuredTextHeight?: number): SpeechDimensions {
   const width = preferredSpeechWidth(text);
   const charactersPerLine = Math.max(24, Math.floor((width - SPEECH_CONTENT_INSET) / 7.2));
