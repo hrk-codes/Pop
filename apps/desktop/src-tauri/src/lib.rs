@@ -12,7 +12,7 @@ use std::{path::PathBuf, time::Duration};
 
 use core::{PopCore, RuntimeSnapshot, now_ms};
 use grammar::WritingAnalysis;
-use groq::{AssistanceResponse, GroqProvider};
+use groq::{AssistanceResponse, GroqProvider, ReplyVoiceProfile};
 use serde::Serialize;
 use storage::{LearnedHabit, Store};
 use tauri::{
@@ -43,6 +43,7 @@ struct CompanionPreferences {
     avatar_size: u16,
     personality_enabled: bool,
     automatic_response_mode: String,
+    reply_voice_profile: ReplyVoiceProfile,
 }
 
 #[derive(Serialize)]
@@ -87,6 +88,14 @@ fn get_runtime_snapshot(core: State<'_, PopCore>) -> RuntimeSnapshot {
     core.snapshot()
 }
 
+fn load_reply_voice_profile(store: &Store) -> Result<ReplyVoiceProfile, String> {
+    Ok(store
+        .text_setting("reply_voice_profile")?
+        .and_then(|value| serde_json::from_str::<ReplyVoiceProfile>(&value).ok())
+        .and_then(|profile| profile.validate_and_normalize().ok())
+        .unwrap_or_default())
+}
+
 #[tauri::command]
 fn get_companion_preferences(core: State<'_, PopCore>) -> Result<CompanionPreferences, String> {
     let store = core.store();
@@ -104,10 +113,12 @@ fn get_companion_preferences(core: State<'_, PopCore>) -> Result<CompanionPrefer
         .text_setting("automatic_response_mode")?
         .filter(|value| matches!(value.as_str(), "EXPLAIN" | "REPLY" | "EXPLAIN_AND_REPLY"))
         .unwrap_or_else(|| "EXPLAIN_AND_REPLY".to_owned());
+    let reply_voice_profile = load_reply_voice_profile(&store)?;
     Ok(CompanionPreferences {
         avatar_size: size,
         personality_enabled,
         automatic_response_mode,
+        reply_voice_profile,
     })
 }
 
@@ -139,6 +150,19 @@ fn set_automatic_response_mode(value: String, core: State<'_, PopCore>) -> Resul
         .lock()
         .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
         .set_text("automatic_response_mode", &value, now_ms())
+}
+
+#[tauri::command]
+fn set_reply_voice_profile(
+    value: ReplyVoiceProfile,
+    core: State<'_, PopCore>,
+) -> Result<(), String> {
+    let value = value.validate_and_normalize()?;
+    let serialized = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+    core.store()
+        .lock()
+        .map_err(|_| "STORE_UNAVAILABLE".to_owned())?
+        .set_text("reply_voice_profile", &serialized, now_ms())
 }
 
 #[tauri::command]
@@ -520,6 +544,11 @@ async fn run_assistance(
         return Err("TASK_CONTEXT_MISMATCH".to_owned());
     }
     let provider = provider.0.clone().ok_or("GROQ_NOT_CONFIGURED")?;
+    let reply_voice_profile = {
+        let store = core.store();
+        let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
+        load_reply_voice_profile(&store)?
+    };
     let request_id = Uuid::new_v4().to_string();
     let cancellation = core.begin_generation();
     let _ = app.emit(
@@ -539,6 +568,7 @@ async fn run_assistance(
             &request_id,
             &task,
             &tone,
+            &reply_voice_profile,
             &context.observation,
             variant,
             cancellation,
@@ -799,6 +829,7 @@ pub fn run() {
             set_avatar_size,
             set_personality_enabled,
             set_automatic_response_mode,
+            set_reply_voice_profile,
             get_companion_awareness,
             set_monitoring,
             set_platform_permission,

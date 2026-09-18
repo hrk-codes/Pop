@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   BookOpen,
   Check,
+  ChevronLeft,
   ChevronRight,
   Cloud,
   Copy,
@@ -14,6 +15,7 @@ import {
   Monitor,
   Palette,
   RefreshCw,
+  RotateCcw,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -60,6 +62,11 @@ import {
   speechDimensions,
 } from './features/companion/speech';
 import {
+  DEFAULT_REPLY_VOICE_PROFILE,
+  VOICE_DIMENSIONS,
+  replyVoiceSummary,
+} from './features/companion/tone';
+import {
   hideCurrentSurface,
   hideSurface,
   resizeAvatarSurface,
@@ -84,10 +91,12 @@ import {
   saveAutomaticResponseMode,
   saveAvatarSize,
   savePersonalityEnabled,
+  saveReplyVoiceProfile,
   suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
   type AutomaticResponseMode,
+  type ReplyVoiceProfile,
   type RuntimeSnapshot,
 } from './features/runtime/runtime-client';
 
@@ -964,11 +973,20 @@ function MenuSurface() {
   const [personalityEnabled, setPersonalityEnabled] = useState(true);
   const [automaticResponseMode, setAutomaticResponseMode] =
     useState<AutomaticResponseMode>('EXPLAIN_AND_REPLY');
+  const [replyVoiceProfile, setReplyVoiceProfile] = useState<ReplyVoiceProfile>(
+    DEFAULT_REPLY_VOICE_PROFILE,
+  );
+  const [voiceDraft, setVoiceDraft] = useState<ReplyVoiceProfile>(DEFAULT_REPLY_VOICE_PROFILE);
+  const [voiceSaveState, setVoiceSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>(
+    'idle',
+  );
   useEffect(() => {
     void getRuntimeSnapshot().then(setRuntime);
     void getCompanionPreferences().then((preferences) => {
       setPersonalityEnabled(preferences.personalityEnabled);
       setAutomaticResponseMode(preferences.automaticResponseMode);
+      setReplyVoiceProfile(preferences.replyVoiceProfile);
+      setVoiceDraft(preferences.replyVoiceProfile);
     });
     let cleanup: (() => void) | undefined;
     void onRuntimeUpdate(setRuntime).then((value) => (cleanup = value));
@@ -1015,6 +1033,21 @@ function MenuSurface() {
       setAutomaticResponseMode(previousMode);
     }
   }
+  async function applyReplyVoiceProfile() {
+    const normalized = {
+      ...voiceDraft,
+      note: voiceDraft.note.replace(/\s+/g, ' ').trim(),
+    };
+    setVoiceSaveState('saving');
+    try {
+      await saveReplyVoiceProfile(normalized);
+      setVoiceDraft(normalized);
+      setReplyVoiceProfile(normalized);
+      setVoiceSaveState('saved');
+    } catch {
+      setVoiceSaveState('error');
+    }
+  }
   const automaticResponseDetail =
     automaticResponseMode === 'EXPLAIN'
       ? 'Explain automatically'
@@ -1034,6 +1067,12 @@ function MenuSurface() {
       label: 'Personality',
       icon: <Palette size={18} />,
       detail: personalityEnabled ? 'Playful moments on' : 'Quiet mode',
+    },
+    {
+      id: 'tone',
+      label: 'Tone',
+      icon: <Sparkles size={18} />,
+      detail: replyVoiceSummary(replyVoiceProfile),
     },
     {
       id: 'privacy',
@@ -1246,7 +1285,7 @@ function MenuSurface() {
               </span>
               <ChevronRight className={section === row.id ? 'rotate' : ''} size={17} />
             </button>
-            {section === row.id && (
+            {section === row.id && row.id !== 'tone' && (
               <div className="submenu">
                 {row.id === 'automatic-response' && (
                   <div className="response-mode-options">
@@ -1357,6 +1396,98 @@ function MenuSurface() {
           </div>
         ))}
       </div>
+      {section === 'tone' && (
+        <aside aria-label="Reply tone" className="tone-editor">
+          <header>
+            <button
+              aria-label="Back to POP menu"
+              onClick={() => {
+                setVoiceDraft(replyVoiceProfile);
+                setVoiceSaveState('idle');
+                setSection(null);
+              }}
+              title="Back"
+              type="button"
+            >
+              <ChevronLeft size={17} />
+            </button>
+            <span>
+              <strong>Tone</strong>
+              <small>Reply in your voice</small>
+            </span>
+          </header>
+          <div className="tone-editor-body">
+            {VOICE_DIMENSIONS.map((dimension) => (
+              <fieldset key={dimension.key}>
+                <legend>{dimension.label}</legend>
+                <div className="tone-segments">
+                  {dimension.options.map(([value, label]) => (
+                    <button
+                      aria-pressed={voiceDraft[dimension.key] === value}
+                      key={value}
+                      onClick={() => {
+                        setVoiceDraft(
+                          (current) =>
+                            ({ ...current, [dimension.key]: value }) as ReplyVoiceProfile,
+                        );
+                        setVoiceSaveState('idle');
+                      }}
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            <label className="tone-note">
+              <span>
+                My wording
+                <small>{voiceDraft.note.length}/180</small>
+              </span>
+              <textarea
+                maxLength={180}
+                onChange={(event) => {
+                  setVoiceDraft((current) => ({ ...current, note: event.target.value }));
+                  setVoiceSaveState('idle');
+                }}
+                placeholder="Simple words, say bro naturally, never sound corporate..."
+                rows={3}
+                value={voiceDraft.note}
+              />
+            </label>
+          </div>
+          <footer>
+            <button
+              aria-label="Reset tone"
+              onClick={() => {
+                setVoiceDraft(DEFAULT_REPLY_VOICE_PROFILE);
+                setVoiceSaveState('idle');
+              }}
+              title="Reset tone"
+              type="button"
+            >
+              <RotateCcw size={15} />
+            </button>
+            <span className={`tone-save-status tone-save-status--${voiceSaveState}`}>
+              {voiceSaveState === 'saved'
+                ? 'Saved'
+                : voiceSaveState === 'error'
+                  ? 'Could not save'
+                  : ''}
+            </span>
+            <button
+              className="tone-apply"
+              disabled={voiceSaveState === 'saving'}
+              onClick={() => void applyReplyVoiceProfile()}
+              type="button"
+            >
+              <Check size={15} />
+              {voiceSaveState === 'saving' ? 'Saving' : 'Apply'}
+            </button>
+          </footer>
+        </aside>
+      )}
       <footer>
         <span>{adapterConnected ? 'Chrome adapter connected' : 'Chrome adapter offline'}</span>
         <button onClick={() => void suspendToTray()} title="Minimize POP to tray" type="button">

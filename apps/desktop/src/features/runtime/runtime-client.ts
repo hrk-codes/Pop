@@ -73,10 +73,19 @@ export interface ProviderHealth {
   reachable: boolean;
 }
 export type AutomaticResponseMode = 'EXPLAIN' | 'REPLY' | 'EXPLAIN_AND_REPLY';
+export interface ReplyVoiceProfile {
+  warmth: 'RESERVED' | 'BALANCED' | 'WARM';
+  directness: 'GENTLE' | 'BALANCED' | 'DIRECT';
+  energy: 'CALM' | 'NATURAL' | 'LIVELY';
+  humor: 'NONE' | 'LIGHT' | 'PLAYFUL';
+  flavor: 'NATURAL' | 'WITTY' | 'DRY' | 'BOLD' | 'CHAOTIC' | 'CRINGE';
+  note: string;
+}
 export interface CompanionPreferences {
   avatarSize: 56 | 76 | 104;
   personalityEnabled: boolean;
   automaticResponseMode: AutomaticResponseMode;
+  replyVoiceProfile: ReplyVoiceProfile;
 }
 
 export interface CompanionAwareness {
@@ -110,6 +119,14 @@ export function getCompanionPreferences(): Promise<CompanionPreferences> {
       avatarSize: 76,
       personalityEnabled: true,
       automaticResponseMode: 'EXPLAIN_AND_REPLY',
+      replyVoiceProfile: {
+        warmth: 'BALANCED',
+        directness: 'BALANCED',
+        energy: 'NATURAL',
+        humor: 'LIGHT',
+        flavor: 'NATURAL',
+        note: '',
+      },
     });
   return invoke('get_companion_preferences');
 }
@@ -127,6 +144,11 @@ export function savePersonalityEnabled(value: boolean): Promise<void> {
 export function saveAutomaticResponseMode(value: AutomaticResponseMode): Promise<void> {
   if (!isTauriRuntime()) return Promise.resolve();
   return invoke('set_automatic_response_mode', { value });
+}
+
+export function saveReplyVoiceProfile(value: ReplyVoiceProfile): Promise<void> {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke('set_reply_voice_profile', { value });
 }
 
 export function getCompanionAwareness(): Promise<CompanionAwareness> {

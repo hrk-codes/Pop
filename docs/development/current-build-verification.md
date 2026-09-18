@@ -79,26 +79,36 @@ and choose **Check Groq**. The menu reports status without showing the key.
 
 ## 6. Test a selected post
 
-1. Double-click POP, open **Selection response**, and leave both **Explain** and **Reply** enabled.
-2. Select text inside an X post.
-3. After the selection remains stable briefly, POP should explain the selection automatically. No
+1. Double-click POP, open **Tone**, choose a visibly distinct profile such as Warm, Direct, Lively,
+   Playful, and Funny or Cringe, then add a short wording note and select **Apply**. Close and reopen
+   the panel to confirm the profile persisted.
+2. Open **Selection response** and leave both **Explain** and **Reply** enabled.
+3. Select text inside an X post.
+4. After the selection remains stable briefly, POP should explain the selection automatically. No
    arrow controls should appear.
-4. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
+5. Press Up or Down while the X selection is active: Up requests another explanation and Down drafts
    a reply. The same commands work while POP's avatar or response bubble has keyboard focus. Click the
    upper or lower part of the mascot for the pointer equivalents.
-5. Request at least three variants. The current response should stay still while POP is thinking; when
+6. Confirm the explanation remains source-focused rather than adopting the saved reply voice. Press
+   Down and confirm the reply has an observable vocabulary and rhythm change from Natural tone. A
+   compatible preferred word from the personal note should appear, while POP must not force slang,
+   invent facts, or change its normal response-length judgment.
+7. Change Style to Dry or Bold and request the same reply again. The result should be recognizably
+   different from Funny or Cringe without changing the underlying point. Switching Humor to None must
+   suppress jokes even when the selected Style remains expressive.
+8. Request at least three variants. The current response should stay still while POP is thinking; when
    the next stream begins, only the response text should move left and be replaced from the right. The
    old response must not blink as a new bubble, and the window must not collapse around an early chunk.
-6. Hold a completed response in POP's bubble and drag it into an X reply field. Only a compact sentence
+9. Hold a completed response in POP's bubble and drag it into an X reply field. Only a compact sentence
    preview should follow the pointer. Releasing over the text field should insert the complete response
    at the drop caret without removing the existing Copy button.
-7. In **Selection response**, turn off **Explain** so only **Reply** remains enabled. Make a different
-   selection and confirm POP drafts a reply immediately without spending a request on an explanation.
-8. Turn **Explain** on and **Reply** off, make another selection, and confirm POP explains it first. POP
-   keeps at least one option enabled and remembers the setting after restart.
-9. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
-   the pointer is resting over it. Close and collapse remain available as immediate controls.
-10. Collapse the response with its minus button, then click the coral result dot to reopen it.
+10. In **Selection response**, turn off **Explain** so only **Reply** remains enabled. Make a different
+    selection and confirm POP drafts a reply immediately without spending a request on an explanation.
+11. Turn **Explain** on and **Reply** off, make another selection, and confirm POP explains it first. POP
+    keeps at least one option enabled and remembers the setting after restart.
+12. Confirm the response closes automatically after its adaptive 10 to 90 second reading period, even when
+    the pointer is resting over it. Close and collapse remain available as immediate controls.
+13. Collapse the response with its minus button, then click the coral result dot to reopen it.
 
 Changing the selection or X route invalidates the previous context. Password and security-like fields
 are rejected before they reach POP Core.

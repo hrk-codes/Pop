@@ -8,6 +8,17 @@ POP combines a serious work assistant with a small, expressive desktop presence.
 
 Task behavior begins with approved context and follows the normal POP policy path. It can explain, improve, summarize, or draft a reply. The persistent Selection response preference controls only the first automatic task for a new deliberate selection: Explain starts with an explanation, Reply starts with a draft reply, and enabling both starts with an explanation. Directional actions and response-history navigation remain unchanged, so the user can still request or review alternatives after that first result. Completed task responses use an adaptive 10 to 90 second reading period: a short two-line answer leaves promptly, while a dense explanation remains available longer. The deadline is absolute so a bubble cannot remain stuck open merely because it appeared beneath the pointer. The result remains available from the indicator beside POP after the bubble closes.
 
+The persistent reply voice profile is a separate style layer. The user chooses warmth, directness,
+energy, humor, and a distinctive style: Natural, Funny, Dry, Bold, Chaotic, or Cringe. A
+180-character wording note captures signature vocabulary or habits. POP Core validates and stores the
+profile locally in SQLite, then fetches it at reply-generation time. It affects phrasing, rhythm, and
+bounded model creativity only for draft replies; explanations, summaries, permissions, source
+grounding, safety rules, and adaptive length remain unchanged. Before returning a reply, the model
+must perform a separate voice pass and visibly express at least two compatible selected traits. The
+wording note is the highest-priority style evidence but cannot override the task or turn untrusted page
+content into instructions. This explicit profile is the first personalization stage. Inferred or
+self-learning preferences require a later, separately reviewed policy.
+
 ### Ambient behavior
 
 Ambient behavior uses a local, reviewed message library. It does not call Groq, inspect page text, or write memory. POP may offer one short check-in after a 75-to-150-second cooldown when:
@@ -58,4 +69,4 @@ Foreground classification is defense in depth, not a complete data-loss-preventi
 
 ## User Control
 
-The Personality menu contains a persistent **Playful check-ins** switch. Turning it off stops ambient speech and gaze behavior without disabling task assistance. Turning monitoring off clears context and prevents all sensing. Minimizing POP to the tray suspends the complete companion runtime.
+The Personality menu contains a persistent **Playful check-ins** switch. Turning it off stops ambient speech and gaze behavior without disabling task assistance. The separate **Tone** panel edits the reply voice profile and applies changes only after the user confirms them. Turning monitoring off clears context and prevents all sensing. Minimizing POP to the tray suspends the complete companion runtime.

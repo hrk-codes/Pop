@@ -416,6 +416,7 @@ button {
 }
 
 .menu-surface {
+  position: relative;
   display: flex;
   width: 100%;
   height: 100%;
@@ -586,6 +587,145 @@ button {
   border: 1px solid rgb(255 255 255 / 12%);
   font-size: 11px;
 }
+.tone-editor {
+  position: absolute;
+  z-index: 3;
+  inset: 58px 0 42px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #191c1b;
+  animation: tone-editor-in 180ms ease-out both;
+}
+.tone-editor > header {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+}
+.tone-editor > header > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tone-editor-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  overflow-y: auto;
+}
+.tone-editor fieldset {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+.tone-editor legend,
+.tone-note > span {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: #aeb4b0;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tone-segments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.menu-surface .tone-segments button {
+  width: 100%;
+  height: 29px;
+  padding: 0 4px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  background: #202422;
+  color: #abb1ad;
+  font-size: 10px;
+}
+.menu-surface .tone-segments button[aria-pressed='true'] {
+  border-color: rgb(70 206 160 / 65%);
+  background: rgb(54 184 138 / 16%);
+  color: #e8fff6;
+}
+.tone-note {
+  display: block;
+}
+.tone-note small {
+  color: #777f79;
+  font-size: 10px;
+  font-weight: 400;
+}
+.tone-note textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  padding: 8px 9px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 6px;
+  outline: none;
+  background: #111413;
+  color: #eff2f0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.tone-note textarea:focus {
+  border-color: #46cea0;
+  box-shadow: 0 0 0 2px rgb(70 206 160 / 12%);
+}
+.tone-note textarea::placeholder {
+  color: #626963;
+}
+.tone-editor > footer {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+.tone-save-status {
+  min-width: 0;
+  flex: 1;
+  color: #8e9690;
+  font-size: 10px;
+}
+.tone-save-status--saved {
+  color: #67d8b0;
+}
+.tone-save-status--error {
+  color: #ff8b80;
+}
+.menu-surface .tone-apply {
+  display: flex;
+  width: auto;
+  min-width: 76px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: #36b88a;
+  color: #071a13;
+  font-size: 11px;
+  font-weight: 700;
+}
+.menu-surface .tone-apply:hover {
+  background: #4bc99c;
+  color: #06140f;
+}
+.menu-surface .tone-apply:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
 .menu-surface > footer {
   display: flex;
   min-height: 42px;
@@ -595,6 +735,17 @@ button {
   border-top: 1px solid rgb(255 255 255 / 9%);
   color: #8f9691;
   font-size: 11px;
+}
+
+@keyframes tone-editor-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 @keyframes pop-blink {
