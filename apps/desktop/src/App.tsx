@@ -818,6 +818,7 @@ function SpeechSurface() {
     event.dataTransfer.clearData();
     event.dataTransfer.effectAllowed = 'copy';
     event.dataTransfer.setData('text/plain', response);
+    event.dataTransfer.setData('application/x-pop-response', '1');
 
     const dragImage = document.createElement('div');
     dragImage.className = 'speech-drag-preview';
