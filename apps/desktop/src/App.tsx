@@ -32,6 +32,7 @@ import {
 } from 'react';
 
 import { PopAvatar, type WorkExpressionStyle } from './features/companion/PopAvatar';
+import { assistanceErrorText } from './features/runtime/assistance-errors';
 import {
   actionsFor,
   automaticTaskFor,
@@ -86,6 +87,7 @@ import {
   onAssistanceStarted,
   onCloudActivity,
   onRuntimeUpdate,
+  recordResponseChoice,
   requestAssistance,
   resizeSpeechSurface,
   saveAutomaticResponseMode,
@@ -96,6 +98,7 @@ import {
   updateMonitoring,
   updatePlatformPermission,
   type AutomaticResponseMode,
+  type ContextKind,
   type ReplyVoiceProfile,
   type RuntimeSnapshot,
 } from './features/runtime/runtime-client';
@@ -107,6 +110,9 @@ type ResultPayload = {
   task: string;
   provider: string;
   model: string;
+  tone?: string;
+  variant?: number;
+  contextKind?: ContextKind;
 };
 type SpeechAnchor = { side: 'left' | 'right'; tailY: number };
 
@@ -152,25 +158,6 @@ const EMPTY_RUNTIME: RuntimeSnapshot = {
   privacyReason: null,
   lastContextError: null,
 };
-
-function errorText(error: unknown): string {
-  if (typeof error !== 'string') return "I couldn't finish that thought. Try the same arrow again.";
-  const friendly: Record<string, string> = {
-    GROQ_RESPONSE_EMPTY: 'I lost that thought before I could say it. Try the same arrow again.',
-    GROQ_REQUEST_FAILED:
-      "I couldn't reach the writing service. I'll be ready when the connection is back.",
-    GROQ_STREAM_INVALID: 'The response was interrupted. Try the same arrow once more.',
-    GROQ_STREAM_CHUNK_INVALID: 'The response was interrupted. Try the same arrow once more.',
-    REQUEST_CANCELLED: '',
-    STALE_CONTEXT: 'That selection expired. Select it again and I will pick it up.',
-    TASK_CONTEXT_MISMATCH: 'That selection changed. Select the text again, then use the arrow.',
-  };
-  if (friendly[error] !== undefined) return friendly[error];
-  if (error.startsWith('GROQ_REQUEST_')) {
-    return "The writing service didn't accept that request. Try again in a moment.";
-  }
-  return "I couldn't finish that thought. Try the same arrow again.";
-}
 
 function AvatarSurface() {
   const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
@@ -276,7 +263,7 @@ function AvatarSurface() {
           return;
         }
         send({ type: 'FAIL' });
-        const message = errorText(error);
+        const message = assistanceErrorText(error);
         if (message) await emit('pop://assistance-failed', message);
       } finally {
         setWorkActive(false);
@@ -795,6 +782,22 @@ function SpeechSurface() {
   async function copyResponse() {
     if (!active) return;
     await navigator.clipboard.writeText(active);
+    const selected = history[index];
+    if (
+      selected?.task === 'DRAFT_REPLY' &&
+      selected.contextKind &&
+      selected.variant !== undefined &&
+      !streamMeta
+    ) {
+      void recordResponseChoice({
+        requestId: selected.requestId,
+        task: 'DRAFT_REPLY',
+        contextKind: selected.contextKind,
+        variant: selected.variant,
+        output: selected.output,
+        acceptanceSource: 'COPY',
+      });
+    }
     setCopied(true);
     restartDismissTimer();
     window.clearTimeout(copyTimer.current);
@@ -828,7 +831,23 @@ function SpeechSurface() {
     window.setTimeout(() => dragImage.remove(), 0);
   }
 
-  function finishResponseDrag() {
+  function finishResponseDrag(event: ReactDragEvent<HTMLDivElement>) {
+    const selected = history[index];
+    if (
+      event.dataTransfer.dropEffect === 'copy' &&
+      selected?.task === 'DRAFT_REPLY' &&
+      selected.contextKind &&
+      selected.variant !== undefined
+    ) {
+      void recordResponseChoice({
+        requestId: selected.requestId,
+        task: 'DRAFT_REPLY',
+        contextKind: selected.contextKind,
+        variant: selected.variant,
+        output: selected.output,
+        acceptanceSource: 'DRAG',
+      });
+    }
     setDraggingResponse(false);
     restartDismissTimer();
   }

@@ -2,6 +2,7 @@ mod core;
 mod foreground;
 mod grammar;
 mod groq;
+mod groq_transport;
 mod native_auth;
 mod protocol;
 mod security;
@@ -544,10 +545,13 @@ async fn run_assistance(
         return Err("TASK_CONTEXT_MISMATCH".to_owned());
     }
     let provider = provider.0.clone().ok_or("GROQ_NOT_CONFIGURED")?;
-    let reply_voice_profile = {
+    let (reply_voice_profile, reply_learning_profile) = {
         let store = core.store();
         let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
-        load_reply_voice_profile(&store)?
+        (
+            load_reply_voice_profile(&store)?,
+            store.reply_learning_profile(&task, context.observation.kind.storage_key())?,
+        )
     };
     let request_id = Uuid::new_v4().to_string();
     let cancellation = core.begin_generation();
@@ -558,6 +562,9 @@ async fn run_assistance(
             "task": task,
             "provider": "groq",
             "model": provider.model(),
+            "tone": tone,
+            "variant": variant,
+            "contextKind": context.observation.kind,
         }),
     );
     let _ = app.emit("pop://cloud-activity", true);
@@ -569,9 +576,10 @@ async fn run_assistance(
             &task,
             &tone,
             &reply_voice_profile,
+            &reply_learning_profile,
             &context.observation,
             variant,
-            cancellation,
+            cancellation.clone(),
             move |delta| {
                 let _ = stream_app.emit(
                     "pop://assistance-chunk",
@@ -580,7 +588,12 @@ async fn run_assistance(
             },
         )
         .await;
-    let _ = app.emit("pop://cloud-activity", false);
+    let result = if cancellation.is_cancelled() {
+        Err("REQUEST_CANCELLED".to_owned())
+    } else {
+        let _ = app.emit("pop://cloud-activity", false);
+        result
+    };
 
     if let Ok(response) = &result
         && let Some(output) = response.outputs.first()
@@ -593,6 +606,9 @@ async fn run_assistance(
                 "task": task,
                 "provider": response.provider,
                 "model": response.model,
+                "tone": tone,
+                "variant": variant,
+                "contextKind": context.observation.kind,
             }),
         );
     }
@@ -604,7 +620,7 @@ async fn run_assistance(
             response.outputs.iter().map(String::len).sum(),
             true,
         ),
-        Err(_) => ("groq", "unknown", 0, false),
+        Err(_) => ("groq", provider.model(), 0, false),
     };
     if let Ok(store) = core.store().lock() {
         let _ = store.audit_ai_request(
@@ -616,9 +632,44 @@ async fn run_assistance(
             output_chars,
             succeeded,
             now_ms(),
+            result.as_ref().err().map(String::as_str),
         );
     }
     result
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn record_response_choice(
+    request_id: String,
+    task: String,
+    context_kind: String,
+    variant: u8,
+    output: String,
+    acceptance_source: String,
+    core: State<'_, PopCore>,
+) -> Result<bool, String> {
+    if Uuid::parse_str(&request_id).is_err()
+        || task != "DRAFT_REPLY"
+        || context_kind.len() > 32
+        || variant > 20
+        || output.is_empty()
+        || output.chars().count() > 4_000
+        || !matches!(acceptance_source.as_str(), "COPY" | "DRAG")
+    {
+        return Err("INVALID_RESPONSE_CHOICE".to_owned());
+    }
+    let store = core.store();
+    let store = store.lock().map_err(|_| "STORE_UNAVAILABLE".to_owned())?;
+    store.record_response_choice(
+        &request_id,
+        &task,
+        &context_kind,
+        variant,
+        &output,
+        &acceptance_source,
+        now_ms(),
+    )
 }
 
 #[tauri::command]
@@ -841,6 +892,7 @@ pub fn run() {
             provider_health,
             check_writing,
             run_assistance,
+            record_response_choice,
             record_copy_preference,
             get_learned_habits,
             forget_habit

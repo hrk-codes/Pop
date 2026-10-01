@@ -50,6 +50,9 @@ export interface AssistanceStarted {
   task: string;
   provider: string;
   model: string;
+  tone: string;
+  variant: number;
+  contextKind: ContextKind;
 }
 
 export interface AssistanceChunk {
@@ -185,6 +188,18 @@ export function requestAssistance(
   variant: number,
 ): Promise<AssistanceResponse> {
   return invoke('run_assistance', { task, tone, variant });
+}
+
+export function recordResponseChoice(value: {
+  requestId: string;
+  task: 'DRAFT_REPLY';
+  contextKind: ContextKind;
+  variant: number;
+  output: string;
+  acceptanceSource: 'COPY' | 'DRAG';
+}): Promise<boolean> {
+  if (!isTauriRuntime()) return Promise.resolve(false);
+  return invoke('record_response_choice', value);
 }
 
 export function resizeSpeechSurface(width: number, height: number): Promise<void> {

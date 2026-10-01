@@ -78,6 +78,20 @@ pub enum ContextKind {
     SelectedCode,
 }
 
+impl ContextKind {
+    pub fn storage_key(self) -> &'static str {
+        match self {
+            Self::DraftText => "DRAFT_TEXT",
+            Self::SocialPost => "SOCIAL_POST",
+            Self::SearchQuery => "SEARCH_QUERY",
+            Self::Conversation => "CONVERSATION",
+            Self::ArticleText => "ARTICLE_TEXT",
+            Self::SelectedText => "SELECTED_TEXT",
+            Self::SelectedCode => "SELECTED_CODE",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextObservation {
