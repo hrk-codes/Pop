@@ -5,8 +5,9 @@ use serde::Deserialize;
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
 
-const MAX_ATTEMPTS: usize = 3;
-const MAX_AUTOMATIC_WAIT: Duration = Duration::from_secs(12);
+const MAX_ATTEMPTS: usize = 2;
+const MAX_AUTOMATIC_WAIT: Duration = Duration::from_secs(1);
+const RETRY_BACKOFF: Duration = Duration::from_millis(200);
 const MAX_ERROR_BODY: usize = 16 * 1024;
 
 #[derive(Clone, Default)]
@@ -15,6 +16,7 @@ pub struct GroqTransport {
     gate: Arc<Mutex<Option<Cooldown>>>,
 }
 
+#[derive(Clone, Copy)]
 struct Cooldown {
     until: Instant,
     code: &'static str,
@@ -140,7 +142,7 @@ fn classify_failure(status: u16, headers: &HeaderMap, body: &[u8]) -> Failure {
         delay: retry_delay(headers).unwrap_or(if status == 429 {
             Duration::from_secs(2)
         } else {
-            Duration::from_millis(500)
+            RETRY_BACKOFF
         }),
     }
 }
@@ -191,17 +193,27 @@ impl GroqTransport {
         request: Request,
         cancellation: &CancellationToken,
     ) -> Result<Response, String> {
-        let mut cooldown = self.gate.lock().await;
         let mut wait_budget = MAX_AUTOMATIC_WAIT;
         for attempt in 0..MAX_ATTEMPTS {
-            if let Some(active) = cooldown.as_ref() {
+            loop {
+                let active = *self.gate.lock().await;
+                let Some(active) = active else { break };
                 let remaining = active.until.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    let mut cooldown = self.gate.lock().await;
+                    if cooldown
+                        .as_ref()
+                        .is_some_and(|current| current.until <= Instant::now())
+                    {
+                        *cooldown = None;
+                    }
+                    continue;
+                }
                 if remaining > wait_budget {
                     return Err(cooldown_error(active.code, remaining));
                 }
                 tokio::time::sleep(remaining).await;
                 wait_budget = wait_budget.saturating_sub(remaining);
-                *cooldown = None;
             }
             if cancellation.is_cancelled() {
                 return Err("REQUEST_CANCELLED".to_owned());
@@ -216,7 +228,10 @@ impl GroqTransport {
                     if !error.is_connect() || attempt + 1 == MAX_ATTEMPTS {
                         return Err("GROQ_REQUEST_FAILED".to_owned());
                     }
-                    let delay = Duration::from_millis(500 * (1 << attempt));
+                    let delay = RETRY_BACKOFF;
+                    if delay > wait_budget {
+                        return Err("GROQ_REQUEST_FAILED".to_owned());
+                    }
                     tokio::time::sleep(delay).await;
                     wait_budget = wait_budget.saturating_sub(delay);
                     continue;
@@ -237,17 +252,28 @@ impl GroqTransport {
             if !failure.retryable {
                 return Err(last_error);
             }
-            let delay = failure
-                .delay
-                .max(Duration::from_millis(500 * (1 << attempt)));
-            *cooldown = Some(Cooldown {
-                until: Instant::now()
+            let delay = failure.delay.max(RETRY_BACKOFF);
+            if failure.code == "GROQ_RATE_LIMITED" {
+                let until = Instant::now()
                     .checked_add(delay)
-                    .ok_or("GROQ_UNAVAILABLE")?,
-                code: failure.code,
-            });
+                    .ok_or("GROQ_UNAVAILABLE")?;
+                let mut cooldown = self.gate.lock().await;
+                if cooldown
+                    .as_ref()
+                    .is_none_or(|current| current.until < until)
+                {
+                    *cooldown = Some(Cooldown {
+                        until,
+                        code: failure.code,
+                    });
+                }
+            }
             if attempt + 1 == MAX_ATTEMPTS || delay > wait_budget {
                 return Err(cooldown_error(failure.code, delay));
+            }
+            if failure.code != "GROQ_RATE_LIMITED" {
+                tokio::time::sleep(delay).await;
+                wait_budget = wait_budget.saturating_sub(delay);
             }
         }
         Err("GROQ_UNAVAILABLE".to_owned())
@@ -259,7 +285,8 @@ mod tests {
     use super::*;
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
+        sync::oneshot,
         task::JoinHandle,
     };
 
@@ -267,6 +294,30 @@ mod tests {
         status: &'static str,
         headers: &'static str,
         body: &'static str,
+    }
+
+    async fn read_request(socket: &mut TcpStream) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let count = socket.read(&mut buffer).await.unwrap();
+            assert!(count > 0);
+            bytes.extend_from_slice(&buffer[..count]);
+            if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&bytes[..end]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .unwrap_or_default();
+                if bytes.len() >= end + 4 + length {
+                    return bytes[end + 4..].to_vec();
+                }
+            }
+        }
     }
 
     async fn server(responses: Vec<StubResponse>) -> (String, JoinHandle<Vec<Vec<u8>>>) {
@@ -280,28 +331,7 @@ mod tests {
                         .await
                         .unwrap()
                         .unwrap();
-                let mut bytes = Vec::new();
-                let mut buffer = [0_u8; 4096];
-                loop {
-                    let count = socket.read(&mut buffer).await.unwrap();
-                    assert!(count > 0);
-                    bytes.extend_from_slice(&buffer[..count]);
-                    if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-                        let headers = String::from_utf8_lossy(&bytes[..end]);
-                        let length = headers
-                            .lines()
-                            .find_map(|line| {
-                                let (name, value) = line.split_once(':')?;
-                                name.eq_ignore_ascii_case("content-length")
-                                    .then(|| value.trim().parse::<usize>().unwrap())
-                            })
-                            .unwrap_or_default();
-                        if bytes.len() >= end + 4 + length {
-                            requests.push(bytes[end + 4..].to_vec());
-                            break;
-                        }
-                    }
-                }
+                requests.push(read_request(&mut socket).await);
                 let reply = format!(
                     "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n{}",
                     response.status,
@@ -356,6 +386,82 @@ mod tests {
         let requests = server.await.unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0], requests[1]);
+    }
+
+    #[tokio::test]
+    async fn long_rate_limit_returns_promptly_and_keeps_shared_cooldown() {
+        let (url, server) = server(vec![StubResponse {
+            status: "429 Too Many Requests",
+            headers: "Retry-After: 8\r\n",
+            body: "{}",
+        }])
+        .await;
+        let client = Client::new();
+        let transport = GroqTransport::default();
+        let started = Instant::now();
+        let error = transport
+            .send(&client, request(&client, &url), &CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert_eq!(error, "GROQ_RATE_LIMITED:8");
+        assert!(started.elapsed() < Duration::from_secs(1));
+        let started = Instant::now();
+        assert!(
+            transport
+                .send(&client, request(&client, &url), &CancellationToken::new())
+                .await
+                .unwrap_err()
+                .starts_with("GROQ_RATE_LIMITED:")
+        );
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(server.await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn slow_request_does_not_hold_up_another_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let slow_url = format!("http://{}", listener.local_addr().unwrap());
+        let (accepted, waiting) = oneshot::channel();
+        let slow_server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            read_request(&mut socket).await;
+            accepted.send(()).unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let (fast_url, fast_server) = server(vec![success()]).await;
+        let client = Client::new();
+        let transport = GroqTransport::default();
+        let slow_client = client.clone();
+        let slow_transport = transport.clone();
+        let slow = tokio::spawn(async move {
+            slow_transport
+                .send(
+                    &slow_client,
+                    request(&slow_client, &slow_url),
+                    &CancellationToken::new(),
+                )
+                .await
+        });
+        waiting.await.unwrap();
+        let fast = tokio::time::timeout(
+            Duration::from_millis(250),
+            transport.send(
+                &client,
+                request(&client, &fast_url),
+                &CancellationToken::new(),
+            ),
+        )
+        .await
+        .expect("the fast request should not wait for the slow one")
+        .unwrap();
+        assert_eq!(fast.status(), 200);
+        slow.await.unwrap().unwrap();
+        slow_server.await.unwrap();
+        assert_eq!(fast_server.await.unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -430,9 +536,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retries_stop_at_three_attempts() {
+    async fn retries_stop_after_one_quick_retry() {
         let (url, server) = server(
-            (0..3)
+            (0..MAX_ATTEMPTS)
                 .map(|_| StubResponse {
                     status: "503 Service Unavailable",
                     headers: "",
@@ -447,7 +553,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error, "GROQ_UNAVAILABLE");
-        assert_eq!(server.await.unwrap().len(), 3);
+        assert_eq!(server.await.unwrap().len(), MAX_ATTEMPTS);
     }
 
     #[tokio::test]
@@ -471,7 +577,7 @@ mod tests {
     async fn cancelling_wait_keeps_cooldown_and_sends_no_request() {
         let transport = GroqTransport::default();
         *transport.gate.lock().await = Some(Cooldown {
-            until: Instant::now() + Duration::from_secs(2),
+            until: Instant::now() + Duration::from_millis(500),
             code: "GROQ_RATE_LIMITED",
         });
         let client = Client::new();
