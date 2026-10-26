@@ -37,6 +37,25 @@ export const contextObservationSchema = z.object({
   languageId: z.string().trim().max(80).optional(),
   documentUri: z.string().trim().max(2_048).optional(),
   observedAt: z.number().int().nonnegative(),
+  publicXPost: z.boolean().optional(),
+  conversation: z
+    .object({
+      turns: z
+        .array(
+          z.object({
+            postId: z.string().regex(/^\d+$/).optional(),
+            authorHandle: z.string().max(80).optional(),
+            text: z.string().trim().min(1).max(4_000),
+            role: z.enum(['ROOT', 'YOU', 'OTHER']),
+            replyingToHandle: z.string().max(80).optional(),
+          }),
+        )
+        .min(2)
+        .max(30),
+      replyTargetIndex: z.number().int().nonnegative(),
+      ambiguous: z.boolean(),
+    })
+    .optional(),
 });
 export type ContextObservation = z.infer<typeof contextObservationSchema>;
 

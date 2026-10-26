@@ -1,5 +1,6 @@
 mod core;
 mod foreground;
+mod gemini;
 mod grammar;
 mod groq;
 mod groq_transport;
@@ -9,7 +10,14 @@ mod security;
 mod server;
 mod storage;
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use core::{PopCore, RuntimeSnapshot, now_ms};
 use grammar::WritingAnalysis;
@@ -36,6 +44,41 @@ pub fn native_host_secret() -> Result<String, String> {
 struct ProviderHealth {
     configured: bool,
     reachable: bool,
+}
+
+#[tauri::command]
+fn gemini_backup_configured() -> bool {
+    gemini::GeminiProvider::configured()
+}
+
+#[tauri::command]
+fn set_gemini_backup_key(key: String) -> Result<(), String> {
+    gemini::GeminiProvider::save_key(&key)
+}
+
+#[tauri::command]
+fn remove_gemini_backup_key() -> Result<(), String> {
+    gemini::GeminiProvider::remove_key()
+}
+
+#[tauri::command]
+async fn gemini_backup_health() -> Result<(), String> {
+    gemini::GeminiProvider::from_environment()?
+        .health_check()
+        .await
+}
+
+fn groq_fallback_error(error: &str) -> bool {
+    error.starts_with("GROQ_RATE_LIMITED:")
+        || matches!(
+            error,
+            "GROQ_QUOTA_EXHAUSTED"
+                | "GROQ_UNAVAILABLE"
+                | "GROQ_REQUEST_FAILED"
+                | "GROQ_REQUEST_TIMEOUT"
+                | "GROQ_UNREACHABLE"
+                | "GROQ_GENERATION_FAILED"
+        )
 }
 
 #[derive(Serialize)]
@@ -482,7 +525,16 @@ fn task_matches_context(task: &str, kind: protocol::ContextKind) -> bool {
 
 #[cfg(test)]
 mod task_context_tests {
-    use super::{protocol::ContextKind, task_matches_context};
+    use super::{groq_fallback_error, protocol::ContextKind, task_matches_context};
+
+    #[test]
+    fn backup_is_reserved_for_transient_provider_failures() {
+        assert!(groq_fallback_error("GROQ_RATE_LIMITED:30"));
+        assert!(groq_fallback_error("GROQ_UNAVAILABLE"));
+        assert!(!groq_fallback_error("GROQ_INVALID_REQUEST"));
+        assert!(!groq_fallback_error("GROQ_AUTH_FAILED"));
+        assert!(!groq_fallback_error("REQUEST_CANCELLED"));
+    }
 
     #[test]
     fn selected_web_text_can_be_explained_or_used_for_a_reply() {
@@ -570,7 +622,9 @@ async fn run_assistance(
     let _ = app.emit("pop://cloud-activity", true);
     let stream_app = app.clone();
     let stream_request_id = request_id.clone();
-    let result = provider
+    let streamed = Arc::new(AtomicBool::new(false));
+    let streamed_for_groq = streamed.clone();
+    let mut result = provider
         .generate_stream(
             &request_id,
             &task,
@@ -581,6 +635,7 @@ async fn run_assistance(
             variant,
             cancellation.clone(),
             move |delta| {
+                streamed_for_groq.store(true, Ordering::Relaxed);
                 let _ = stream_app.emit(
                     "pop://assistance-chunk",
                     serde_json::json!({ "requestId": stream_request_id, "delta": delta }),
@@ -588,6 +643,36 @@ async fn run_assistance(
             },
         )
         .await;
+    let mut used_backup = false;
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error| groq_fallback_error(error))
+        && !streamed.load(Ordering::Relaxed)
+        && !cancellation.is_cancelled()
+        && gemini::eligible_public_x_post(&context.observation)
+        && let Ok(backup) = gemini::GeminiProvider::from_environment()
+    {
+        used_backup = true;
+        let backup_app = app.clone();
+        let backup_id = request_id.clone();
+        result = backup
+            .generate_stream(
+                &request_id,
+                &task,
+                &tone,
+                &reply_voice_profile,
+                &context.observation,
+                &cancellation,
+                move |delta| {
+                    let _ = backup_app.emit(
+                        "pop://assistance-chunk",
+                        serde_json::json!({ "requestId": backup_id, "delta": delta }),
+                    );
+                },
+            )
+            .await;
+    }
     let result = if cancellation.is_cancelled() {
         Err("REQUEST_CANCELLED".to_owned())
     } else {
@@ -620,6 +705,7 @@ async fn run_assistance(
             response.outputs.iter().map(String::len).sum(),
             true,
         ),
+        Err(_) if used_backup => ("gemini", gemini::MODEL, 0, false),
         Err(_) => ("groq", provider.model(), 0, false),
     };
     if let Ok(store) = core.store().lock() {
@@ -890,6 +976,10 @@ pub fn run() {
             resize_speech_surface,
             toggle_surface,
             provider_health,
+            gemini_backup_configured,
+            gemini_backup_health,
+            set_gemini_backup_key,
+            remove_gemini_backup_key,
             check_writing,
             run_assistance,
             record_response_choice,

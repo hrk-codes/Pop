@@ -20,6 +20,19 @@ export function assistanceErrorText(error: unknown): string {
     REQUEST_CANCELLED: '',
     STALE_CONTEXT: 'That selection expired. Select it again and I will pick it up.',
     TASK_CONTEXT_MISMATCH: 'That selection changed. Select the text again, then use the arrow.',
+    CONVERSATION_TARGET_UNCLEAR:
+      'I cannot tell which comment to answer. Select the intended comment and try again.',
+    GEMINI_AUTH_FAILED: 'The Gemini backup key was rejected. Check it in POP settings.',
+    GEMINI_RATE_LIMITED:
+      'Groq and the free Gemini backup are both at their usage limits. Try again later.',
+    GEMINI_UNAVAILABLE:
+      'Groq and the Gemini backup are temporarily unavailable. Try again shortly.',
+    GEMINI_UNREACHABLE:
+      'POP could not reach the Gemini backup. Check your connection and try again.',
+    GEMINI_REQUEST_REJECTED:
+      'The Gemini backup could not use this key or model. Check its access in Google AI Studio.',
+    GEMINI_STREAM_INVALID: 'The backup response was interrupted. Try the same arrow again.',
+    GEMINI_RESPONSE_EMPTY: 'The backup returned no text. Try the same arrow again.',
   };
   if (friendly[error] !== undefined) return friendly[error];
   const rateLimit = /^GROQ_RATE_LIMITED:(\d+)$/.exec(error);

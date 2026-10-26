@@ -104,6 +104,26 @@ pub struct ContextObservation {
     pub language_id: Option<String>,
     pub document_uri: Option<String>,
     pub observed_at: u64,
+    pub public_x_post: Option<bool>,
+    pub conversation: Option<ConversationContext>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationContext {
+    pub turns: Vec<ConversationTurn>,
+    pub reply_target_index: usize,
+    pub ambiguous: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationTurn {
+    pub post_id: Option<String>,
+    pub author_handle: Option<String>,
+    pub text: String,
+    pub role: String,
+    pub replying_to_handle: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

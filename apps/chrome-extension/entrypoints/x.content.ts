@@ -1,5 +1,9 @@
 import type { ContextKind, ContextObservation } from '@pop/protocol';
-import { buildConversationTranscript, type ConversationTurn } from '../utils/conversation';
+import {
+  buildConversationTranscript,
+  type ConversationTranscript,
+  type ConversationTurn,
+} from '../utils/conversation';
 import { isPrivateWebHost, isXHost } from '../utils/page-policy';
 import {
   boundContext,
@@ -73,7 +77,7 @@ export default defineContentScript({
       }
     }
 
-    function xConversation(selection: Selection): string | null {
+    function xConversation(selection: Selection): ConversationTranscript | null {
       if (selection.rangeCount === 0 || !xThreadUri()) return null;
       const range = selection.getRangeAt(0);
       const selfHandle = ownXHandle();
@@ -103,17 +107,26 @@ export default defineContentScript({
         if (seen.has(identity)) continue;
         seen.add(identity);
         turns.push({
+          postId: statusLink?.href.match(/\/status\/(\d+)/)?.[1],
           authorName,
           authorHandle,
+          replyingToHandle: article.innerText
+            .split(tweetText.innerText)[0]
+            ?.match(/Replying to\s+(@[A-Za-z0-9_]+)/i)?.[1],
           text,
           isSelf: Boolean(selfHandle && authorHandle && selfHandle === authorHandle.toLowerCase()),
         });
       }
 
-      return buildConversationTranscript(turns)?.text ?? null;
+      return buildConversationTranscript(turns);
     }
 
-    function observationFor(kind: ContextKind, text: string): ContextObservation | null {
+    function observationFor(
+      kind: ContextKind,
+      text: string,
+      conversation?: ConversationTranscript['context'],
+      publicXPost = false,
+    ): ContextObservation | null {
       if (!enabled() || text.length < 2) return null;
       const bounded = boundContext(text);
       return {
@@ -125,6 +138,8 @@ export default defineContentScript({
         title: document.title.slice(0, 300),
         documentUri: xPage() ? xThreadUri() : undefined,
         observedAt: Date.now(),
+        conversation,
+        publicXPost,
       };
     }
     function selectedObservation(): ContextObservation | null {
@@ -132,18 +147,34 @@ export default defineContentScript({
       const text = selection?.toString().trim() ?? '';
       if (!text || !selection?.anchorNode) return null;
       const conversation = xPage() ? xConversation(selection) : null;
-      if (conversation) return observationFor('CONVERSATION', conversation);
+      if (conversation)
+        return observationFor('CONVERSATION', conversation.text, conversation.context);
       const node =
         selection.anchorNode instanceof Element
           ? selection.anchorNode
           : selection.anchorNode.parentElement;
       const article = node?.closest('article, main, [role="main"]');
       const kind = classifySelection(xPage(), Boolean(article), text.length);
-      return observationFor(kind, text);
+      const tweet = node?.closest<HTMLElement>('article[data-testid="tweet"]');
+      const tweetText = tweet?.querySelector('[data-testid="tweetText"]');
+      const range = selection.getRangeAt(0);
+      const selectedPostId = tweet
+        ?.querySelector<HTMLTimeElement>('a[href*="/status/"] time')
+        ?.closest<HTMLAnchorElement>('a')
+        ?.href.match(/\/status\/(\d+)/)?.[1];
+      const pagePostId = location.pathname.match(/\/status\/(\d+)/)?.[1];
+      const publicXPost = Boolean(
+        xPage() &&
+        selectedPostId &&
+        selectedPostId === pagePostId &&
+        tweetText &&
+        tweetText.contains(range.startContainer) &&
+        tweetText.contains(range.endContainer) &&
+        !tweet?.querySelector('[aria-label*="Protected"], [data-testid="icon-lock"]'),
+      );
+      return observationFor(kind, text, undefined, publicXPost);
     }
-    function emit(kind: ContextKind, text: string) {
-      const observation = observationFor(kind, text);
-      if (!observation) return;
+    function emit(observation: ContextObservation) {
       const fingerprint = `${observation.kind}:${observation.text}`;
       if (fingerprint === lastFingerprint) return;
       lastFingerprint = fingerprint;
@@ -159,7 +190,7 @@ export default defineContentScript({
       timer = globalThis.setTimeout(() => {
         if (!enabled()) return;
         const observation = selectedObservation();
-        if (observation) emit(observation.kind, observation.text);
+        if (observation) emit(observation);
       }, settleDelay);
     }
 

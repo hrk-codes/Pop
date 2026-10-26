@@ -224,6 +224,27 @@ impl PopCore {
         if contains_likely_secret(&observation.text) {
             return Err("SENSITIVE_CONTEXT_BLOCKED");
         }
+        if let Some(conversation) = &observation.conversation {
+            if observation.kind != ContextKind::Conversation
+                || observation.platform_id != PlatformId::X
+                || !(2..=30).contains(&conversation.turns.len())
+                || conversation.reply_target_index >= conversation.turns.len()
+                || conversation
+                    .turns
+                    .iter()
+                    .map(|turn| turn.text.chars().count())
+                    .sum::<usize>()
+                    > 8_000
+                || conversation.turns.iter().any(|turn| {
+                    turn.text.is_empty()
+                        || turn.text.chars().count() > 4_000
+                        || !matches!(turn.role.as_str(), "ROOT" | "YOU" | "OTHER")
+                        || contains_likely_secret(&turn.text)
+                })
+            {
+                return Err("INVALID_CONVERSATION_CONTEXT");
+            }
+        }
         if !valid_source_platform(source, observation.platform_id) {
             return Err("SOURCE_PLATFORM_MISMATCH");
         }
@@ -432,6 +453,8 @@ mod web_domain_tests {
             language_id: None,
             document_uri: None,
             observed_at: 1,
+            public_x_post: None,
+            conversation: None,
         };
         assert_eq!(context_ttl_ms(&observation), 300_000);
     }
@@ -449,6 +472,8 @@ mod web_domain_tests {
             language_id: None,
             document_uri: Some("https://x.com/i/status/1".to_owned()),
             observed_at: 1,
+            public_x_post: None,
+            conversation: None,
         };
         assert_eq!(context_ttl_ms(&observation), 900_000);
     }

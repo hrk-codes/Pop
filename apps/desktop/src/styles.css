@@ -557,6 +557,42 @@ button {
   accent-color: #36b88a;
   cursor: pointer;
 }
+.backup-settings {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  padding: 4px 0;
+}
+.menu-surface .backup-settings button {
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  justify-self: start;
+  padding: 5px 8px;
+  border: 1px solid rgb(255 255 255 / 14%);
+}
+.menu-surface .backup-settings button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.backup-settings small {
+  color: #9da9a5;
+  line-height: 1.35;
+}
+.backup-key-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.backup-key-row input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 22%);
+  color: #fff;
+  padding: 6px;
+}
 .response-mode-options {
   display: grid;
   width: 100%;

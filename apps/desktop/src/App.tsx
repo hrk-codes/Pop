@@ -80,6 +80,8 @@ import {
   checkWriting,
   getCompanionPreferences,
   getCompanionAwareness,
+  geminiBackupConfigured,
+  checkGeminiBackup,
   getRuntimeSnapshot,
   isTauriRuntime,
   onAssistanceChunk,
@@ -88,12 +90,14 @@ import {
   onCloudActivity,
   onRuntimeUpdate,
   recordResponseChoice,
+  removeGeminiBackupKey,
   requestAssistance,
   resizeSpeechSurface,
   saveAutomaticResponseMode,
   saveAvatarSize,
   savePersonalityEnabled,
   saveReplyVoiceProfile,
+  saveGeminiBackupKey,
   suspendToTray,
   updateMonitoring,
   updatePlatformPermission,
@@ -283,12 +287,13 @@ function AvatarSurface() {
       setPreferencesReady(true);
     });
     void onRuntimeUpdate((snapshot) => {
-      window.clearTimeout(automaticTimer.current);
       setRuntime(snapshot);
       setResultReady(false);
       send(snapshot.currentContext ? { type: 'CONTEXT_READY' } : { type: 'RESET' });
       const context = snapshot.currentContext;
       if (!context) {
+        window.clearTimeout(automaticTimer.current);
+        automaticTimer.current = undefined;
         if (contextFingerprint.current) void emit('pop://context-changed');
         contextFingerprint.current = '';
         variantCounts.current = {};
@@ -297,6 +302,8 @@ function AvatarSurface() {
       }
       const fingerprint = `${context.observation.platformId}:${context.observation.domain ?? ''}:${context.observation.kind}:${context.observation.text}`;
       if (fingerprint !== contextFingerprint.current) {
+        window.clearTimeout(automaticTimer.current);
+        automaticTimer.current = undefined;
         contextFingerprint.current = fingerprint;
         variantCounts.current = {};
         void emit('pop://context-changed');
@@ -308,9 +315,17 @@ function AvatarSurface() {
         snapshot.permissions.platforms[snapshot.currentContext.observation.platformId] &&
         !snapshot.suspended &&
         !snapshot.privacyPaused;
+      if (!enabled) {
+        window.clearTimeout(automaticTimer.current);
+        automaticTimer.current = undefined;
+        automaticFingerprint.current = '';
+      }
       if (enabled && task && fingerprint !== automaticFingerprint.current) {
         automaticFingerprint.current = fingerprint;
-        automaticTimer.current = window.setTimeout(() => void runTask(task), 180);
+        automaticTimer.current = window.setTimeout(() => {
+          automaticTimer.current = undefined;
+          if (automaticFingerprint.current === fingerprint) void runTask(task);
+        }, 180);
       }
     }).then((cleanup) => cleanups.push(cleanup));
     void onCloudActivity((active) => {
@@ -990,6 +1005,12 @@ function MenuSurface() {
   const [runtime, setRuntime] = useState(EMPTY_RUNTIME);
   const [section, setSection] = useState<string | null>(null);
   const [health, setHealth] = useState<'idle' | 'checking' | 'ready' | 'failed'>('idle');
+  const [backupConfigured, setBackupConfigured] = useState(false);
+  const [backupKey, setBackupKey] = useState('');
+  const [backupState, setBackupState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [backupHealth, setBackupHealth] = useState<'idle' | 'checking' | 'ready' | 'failed'>(
+    'idle',
+  );
   const [personalityEnabled, setPersonalityEnabled] = useState(true);
   const [automaticResponseMode, setAutomaticResponseMode] =
     useState<AutomaticResponseMode>('EXPLAIN_AND_REPLY');
@@ -1002,6 +1023,7 @@ function MenuSurface() {
   );
   useEffect(() => {
     void getRuntimeSnapshot().then(setRuntime);
+    void geminiBackupConfigured().then(setBackupConfigured);
     void getCompanionPreferences().then((preferences) => {
       setPersonalityEnabled(preferences.personalityEnabled);
       setAutomaticResponseMode(preferences.automaticResponseMode);
@@ -1081,7 +1103,12 @@ function MenuSurface() {
       icon: <MessageCircle size={18} />,
       detail: automaticResponseDetail,
     },
-    { id: 'ai', label: 'AI', icon: <Sparkles size={18} />, detail: 'Local + Groq' },
+    {
+      id: 'ai',
+      label: 'AI',
+      icon: <Sparkles size={18} />,
+      detail: backupConfigured ? 'Groq + Gemini backup' : 'Local + Groq',
+    },
     {
       id: 'personality',
       label: 'Personality',
@@ -1340,16 +1367,98 @@ function MenuSurface() {
                   </div>
                 )}
                 {row.id === 'ai' && (
-                  <button onClick={() => void providerCheck()} type="button">
-                    <Cloud size={15} />
-                    {health === 'checking'
-                      ? 'Checking...'
-                      : health === 'ready'
-                        ? 'Groq connected'
-                        : health === 'failed'
-                          ? 'Groq unavailable'
-                          : 'Check Groq'}
-                  </button>
+                  <div className="backup-settings">
+                    <button onClick={() => void providerCheck()} type="button">
+                      <Cloud size={15} />
+                      {health === 'checking'
+                        ? 'Checking...'
+                        : health === 'ready'
+                          ? 'Groq connected'
+                          : health === 'failed'
+                            ? 'Groq unavailable'
+                            : 'Check Groq'}
+                    </button>
+                    <label htmlFor="gemini-backup-key">
+                      Gemini free backup {backupConfigured ? 'configured' : 'off'}
+                    </label>
+                    <small>
+                      Use a key from an unbilled free-tier project; POP cannot check billing status.
+                      Backup runs only for eligible X posts when Groq fails. Google may use
+                      free-tier requests to improve its products. POP sends no saved wording note.
+                    </small>
+                    <div className="backup-key-row">
+                      <input
+                        autoComplete="off"
+                        id="gemini-backup-key"
+                        onChange={(event) => {
+                          setBackupKey(event.target.value);
+                          setBackupState('idle');
+                        }}
+                        placeholder="Gemini API key"
+                        type="password"
+                        value={backupKey}
+                      />
+                      <button
+                        disabled={!backupKey.trim() || backupState === 'saving'}
+                        onClick={async () => {
+                          setBackupState('saving');
+                          try {
+                            await saveGeminiBackupKey(backupKey);
+                            setBackupKey('');
+                            setBackupConfigured(true);
+                            setBackupState('saved');
+                            setBackupHealth('idle');
+                          } catch {
+                            setBackupState('error');
+                          }
+                        }}
+                        type="button"
+                      >
+                        Save
+                      </button>
+                    </div>
+                    {backupConfigured && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await removeGeminiBackupKey();
+                            setBackupConfigured(false);
+                            setBackupState('idle');
+                            setBackupHealth('idle');
+                          } catch {
+                            setBackupState('error');
+                          }
+                        }}
+                        type="button"
+                      >
+                        Remove Gemini key
+                      </button>
+                    )}
+                    {backupConfigured && (
+                      <button
+                        disabled={backupHealth === 'checking'}
+                        onClick={async () => {
+                          setBackupHealth('checking');
+                          try {
+                            await checkGeminiBackup();
+                            setBackupHealth('ready');
+                          } catch {
+                            setBackupHealth('failed');
+                          }
+                        }}
+                        type="button"
+                      >
+                        {backupHealth === 'checking'
+                          ? 'Checking Gemini...'
+                          : backupHealth === 'ready'
+                            ? 'Gemini model reachable'
+                            : backupHealth === 'failed'
+                              ? 'Gemini check failed'
+                              : 'Check Gemini'}
+                      </button>
+                    )}
+                    {backupState === 'error' && <small>Could not update backup key.</small>}
+                  </div>
                 )}
                 {row.id === 'personality' && (
                   <>

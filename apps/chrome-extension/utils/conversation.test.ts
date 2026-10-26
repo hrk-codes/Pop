@@ -34,9 +34,38 @@ describe('X conversation transcript', () => {
       { text: `Latest turn ${'Z'.repeat(5_000)}`, isSelf: false },
     ]);
 
-    expect([...(transcript?.text ?? '')]).toHaveLength(8_000);
+    expect([...(transcript?.text ?? '')].length).toBeLessThanOrEqual(8_000);
     expect(transcript?.text).toContain('Opening context');
-    expect(transcript?.text).toContain('[Middle of selection omitted locally]');
     expect(transcript?.text.endsWith('Z'.repeat(100))).toBe(true);
+    expect(transcript?.context.turns.at(-1)?.text.startsWith('Latest turn')).toBe(true);
+  });
+
+  it('keeps the newest target when more than thirty posts are selected', () => {
+    const turns = [
+      { text: 'Root post', isSelf: false },
+      ...Array.from({ length: 30 }, (_, index) => ({
+        text: `Middle ${index}`,
+        isSelf: index % 2 === 0,
+      })),
+      { text: 'Actual newest reply', isSelf: false },
+    ];
+    const transcript = buildConversationTranscript(turns);
+    expect(transcript?.context.turns[0].text).toBe('Root post');
+    expect(transcript?.context.turns.at(-1)?.text).toBe('Actual newest reply');
+    expect(transcript?.context.replyTargetIndex).toBe((transcript?.turnCount ?? 0) - 1);
+  });
+
+  it('flags a last reply addressed to a different branch', () => {
+    const transcript = buildConversationTranscript([
+      { authorHandle: '@root', text: 'Root post', isSelf: false },
+      { authorHandle: '@other', text: 'Another reply', isSelf: false },
+      {
+        authorHandle: '@third',
+        replyingToHandle: '@root',
+        text: 'Different branch',
+        isSelf: false,
+      },
+    ]);
+    expect(transcript?.context.ambiguous).toBe(true);
   });
 });

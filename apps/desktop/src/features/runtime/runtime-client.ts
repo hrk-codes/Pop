@@ -17,6 +17,7 @@ export interface ContextObservation {
   title?: string;
   documentUri?: string;
   observedAt: number;
+  publicXPost?: boolean;
 }
 
 export interface ActiveContext {
@@ -176,6 +177,23 @@ export function suspendToTray(): Promise<RuntimeSnapshot> {
 
 export function checkProvider(): Promise<ProviderHealth> {
   return invoke('provider_health');
+}
+
+export function geminiBackupConfigured(): Promise<boolean> {
+  if (!isTauriRuntime()) return Promise.resolve(false);
+  return invoke('gemini_backup_configured');
+}
+
+export function checkGeminiBackup(): Promise<void> {
+  return invoke('gemini_backup_health');
+}
+
+export function saveGeminiBackupKey(key: string): Promise<void> {
+  return invoke('set_gemini_backup_key', { key });
+}
+
+export function removeGeminiBackupKey(): Promise<void> {
+  return invoke('remove_gemini_backup_key');
 }
 
 export function checkWriting(): Promise<WritingAnalysis> {
